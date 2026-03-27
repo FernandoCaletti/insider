@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.app.config import get_settings
 from api.app.routers import (
     companies,
+    correlations,
     dashboard,
     documents,
     holdings,
@@ -33,6 +34,7 @@ app.add_middleware(
 )
 
 app.include_router(companies.router, prefix="/api")
+app.include_router(correlations.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(holdings.router, prefix="/api")
 app.include_router(material_facts.router, prefix="/api")

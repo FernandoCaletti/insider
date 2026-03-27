@@ -156,3 +156,44 @@ export interface PositionHistoryPoint {
   posicao_inicial: number;
   posicao_final: number;
 }
+
+// Correlation types
+export interface CorrelationEntry {
+  holding_id: number;
+  operation_date: string;
+  operation_type: string | null;
+  asset_type: AssetType;
+  total_value: number | null;
+  quantity: number | null;
+  insider_group: string | null;
+  material_fact_id: number;
+  fact_date: string;
+  fact_category: string | null;
+  fact_subject: string | null;
+  days_diff: number;
+  company_id: number;
+  company_name: string;
+  company_ticker: string | null;
+}
+
+export interface CorrelationSummary {
+  total_correlations: number;
+  companies_involved: number;
+  unique_movements: number;
+  unique_facts: number;
+  total_value: number;
+  avg_days_diff: number;
+  movements_before_fact: number;
+  movements_after_fact: number;
+}
+
+export interface TopCorrelatedCompany {
+  company_id: number;
+  company_name: string;
+  company_ticker: string | null;
+  correlation_count: number;
+  unique_movements: number;
+  unique_facts: number;
+  total_value: number;
+  avg_days_diff: number;
+}

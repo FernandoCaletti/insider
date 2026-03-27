@@ -8,6 +8,7 @@ import {
   Building2,
   ArrowLeftRight,
   Trophy,
+  GitCompareArrows,
 } from "lucide-react";
 
 const navigation = [
@@ -15,6 +16,7 @@ const navigation = [
   { name: "Empresas", href: "/empresas", icon: Building2 },
   { name: "Movimentações", href: "/movimentacoes", icon: ArrowLeftRight },
   { name: "Rankings", href: "/rankings", icon: Trophy },
+  { name: "Correlações", href: "/correlacoes", icon: GitCompareArrows },
 ];
 
 export function Header() {
