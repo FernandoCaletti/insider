@@ -49,6 +49,15 @@ const ASSET_TYPES = [
   { value: "OUTRO", label: "Outro" },
 ];
 
+const INSIDER_GROUPS = [
+  { value: "Controlador", label: "Controlador" },
+  { value: "Conselho de Administracao", label: "Conselho de Administração" },
+  { value: "Diretoria", label: "Diretoria" },
+  { value: "Conselho Fiscal", label: "Conselho Fiscal" },
+  { value: "Orgaos Tecnicos", label: "Órgãos Técnicos" },
+  { value: "Pessoas Ligadas", label: "Pessoas Ligadas" },
+];
+
 interface RankingResponse {
   data: RankingEntry[];
   period: string;
@@ -60,6 +69,7 @@ interface PositionResponse {
 
 export default function RankingsPage() {
   const [period, setPeriod] = useState("30d");
+  const [insiderGroup, setInsiderGroup] = useState("all");
   const [positionAssetType, setPositionAssetType] = useState("all");
   const [buyers, setBuyers] = useState<RankingEntry[]>([]);
   const [sellers, setSellers] = useState<RankingEntry[]>([]);
@@ -68,18 +78,21 @@ export default function RankingsPage() {
   const [loading, setLoading] = useState(true);
   const [positionsLoading, setPositionsLoading] = useState(true);
 
-  const fetchRankings = useCallback(async (p: string) => {
+  const fetchRankings = useCallback(async (p: string, group: string) => {
     setLoading(true);
     try {
+      const baseParams: Record<string, string | number> = { period: p, limit: 20 };
+      if (group !== "all") baseParams.insider_group = group;
+
       const [buyersRes, sellersRes, activeRes] = await Promise.allSettled([
         api.get<RankingResponse>("/rankings/top-buyers", {
-          params: { period: p, limit: 20 },
+          params: baseParams,
         }),
         api.get<RankingResponse>("/rankings/top-sellers", {
-          params: { period: p, limit: 20 },
+          params: baseParams,
         }),
         api.get<RankingResponse>("/rankings/most-active", {
-          params: { period: p, limit: 20 },
+          params: baseParams,
         }),
       ]);
       setBuyers(
@@ -117,8 +130,8 @@ export default function RankingsPage() {
   }, []);
 
   useEffect(() => {
-    fetchRankings(period);
-  }, [period, fetchRankings]);
+    fetchRankings(period, insiderGroup);
+  }, [period, insiderGroup, fetchRankings]);
 
   useEffect(() => {
     fetchPositions(positionAssetType);
@@ -133,18 +146,33 @@ export default function RankingsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-2xl font-bold">Rankings</h1>
 
-        {/* Period selector */}
-        <div className="flex gap-1 flex-wrap">
-          {PERIODS.map((p) => (
-            <Button
-              key={p.value}
-              variant={period === p.value ? "default" : "outline"}
-              size="sm"
-              onClick={() => handlePeriodChange(p.value)}
-            >
-              {p.label}
-            </Button>
-          ))}
+        {/* Period selector + Insider Group filter */}
+        <div className="flex gap-3 flex-wrap items-center">
+          <div className="flex gap-1 flex-wrap">
+            {PERIODS.map((p) => (
+              <Button
+                key={p.value}
+                variant={period === p.value ? "default" : "outline"}
+                size="sm"
+                onClick={() => handlePeriodChange(p.value)}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
+          <Select value={insiderGroup} onValueChange={setInsiderGroup}>
+            <SelectTrigger className="w-[220px]">
+              <SelectValue placeholder="Grupo do Insider" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os grupos</SelectItem>
+              {INSIDER_GROUPS.map((g) => (
+                <SelectItem key={g.value} value={g.value}>
+                  {g.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

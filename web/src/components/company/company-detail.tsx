@@ -50,6 +50,15 @@ const ASSET_TYPES = [
   { value: "OUTRO", label: "Outro" },
 ];
 
+const INSIDER_GROUPS = [
+  { value: "Controlador", label: "Controlador" },
+  { value: "Conselho de Administracao", label: "Conselho de Administração" },
+  { value: "Diretoria", label: "Diretoria" },
+  { value: "Conselho Fiscal", label: "Conselho Fiscal" },
+  { value: "Orgaos Tecnicos", label: "Órgãos Técnicos" },
+  { value: "Pessoas Ligadas", label: "Pessoas Ligadas" },
+];
+
 function formatCNPJ(cnpj: string | null): string {
   if (!cnpj) return "\u2014";
   const digits = cnpj.replace(/\D/g, "");
@@ -144,6 +153,7 @@ function MovementsTab({ companyId }: { companyId: number }) {
   const [loading, setLoading] = useState(true);
   const [assetType, setAssetType] = useState("");
   const [operationType, setOperationType] = useState("");
+  const [insiderGroup, setInsiderGroup] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -157,6 +167,7 @@ function MovementsTab({ companyId }: { companyId: number }) {
       };
       if (assetType) params.asset_type = assetType;
       if (operationType) params.operation_type = operationType;
+      if (insiderGroup) params.insider_group = insiderGroup;
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
 
@@ -172,7 +183,7 @@ function MovementsTab({ companyId }: { companyId: number }) {
     } finally {
       setLoading(false);
     }
-  }, [companyId, page, assetType, operationType, dateFrom, dateTo]);
+  }, [companyId, page, assetType, operationType, insiderGroup, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchMovements();
@@ -186,6 +197,7 @@ function MovementsTab({ companyId }: { companyId: number }) {
     params.set("section", "movimentacoes");
     if (assetType) params.set("asset_type", assetType);
     if (operationType) params.set("operation_type", operationType);
+    if (insiderGroup) params.set("insider_group", insiderGroup);
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo) params.set("date_to", dateTo);
     window.open(`${baseUrl}/holdings/export?${params.toString()}`, "_blank");
@@ -230,6 +242,26 @@ function MovementsTab({ companyId }: { companyId: number }) {
             <SelectItem value="all">Todas</SelectItem>
             <SelectItem value="Compra">Compra</SelectItem>
             <SelectItem value="Venda">Venda</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={insiderGroup || "all"}
+          onValueChange={(v) => {
+            setInsiderGroup(v === "all" ? "" : v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-[220px]">
+            <SelectValue placeholder="Grupo do Insider" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os grupos</SelectItem>
+            {INSIDER_GROUPS.map((g) => (
+              <SelectItem key={g.value} value={g.value}>
+                {g.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -283,6 +315,7 @@ function MovementsTab({ companyId }: { companyId: number }) {
                 <TableHead>Data</TableHead>
                 <TableHead>Ativo</TableHead>
                 <TableHead>Operação</TableHead>
+                <TableHead>Grupo</TableHead>
                 <TableHead className="text-right">Quantidade</TableHead>
                 <TableHead className="text-right">Preço Unit.</TableHead>
                 <TableHead className="text-right">Valor Total</TableHead>
@@ -321,6 +354,9 @@ function MovementsTab({ companyId }: { companyId: number }) {
                     ) : (
                       "\u2014"
                     )}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {h.insider_group || "\u2014"}
                   </TableCell>
                   <TableCell className="text-right font-mono">
                     {formatQuantity(h.quantity)}

@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from api.app.database import get_cursor
+from api.app.routers.holdings import _validate_insider_group
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -183,10 +184,12 @@ async def get_company_holdings(
     operation_type: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    insider_group: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
 ) -> dict[str, Any]:
     """Get company holdings."""
+    validated_group = _validate_insider_group(insider_group)
     offset = (page - 1) * per_page
 
     with get_cursor() as cur:
@@ -213,6 +216,9 @@ async def get_company_holdings(
         if date_to:
             conditions.append("d.reference_date <= %s")
             params.append(date_to)
+        if validated_group:
+            conditions.append("LOWER(h.insider_group) = LOWER(%s)")
+            params.append(validated_group)
 
         where = "WHERE " + " AND ".join(conditions)
 

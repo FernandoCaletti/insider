@@ -64,6 +64,15 @@ const ASSET_TYPES = [
   { value: "OUTRO", label: "Outro" },
 ];
 
+const INSIDER_GROUPS = [
+  { value: "Controlador", label: "Controlador" },
+  { value: "Conselho de Administracao", label: "Conselho de Administração" },
+  { value: "Diretoria", label: "Diretoria" },
+  { value: "Conselho Fiscal", label: "Conselho Fiscal" },
+  { value: "Orgaos Tecnicos", label: "Órgãos Técnicos" },
+  { value: "Pessoas Ligadas", label: "Pessoas Ligadas" },
+];
+
 const PER_PAGE_OPTIONS = [20, 50, 100];
 
 const SORT_FIELD_MAP: Record<string, string> = {
@@ -109,6 +118,7 @@ interface FetchParams {
   companyId: number | null;
   assetTypes: string[];
   operationType: string;
+  insiderGroup: string;
   dateFrom: string;
   dateTo: string;
   valueMin: string;
@@ -143,6 +153,9 @@ function MovimentaçõesContent() {
   });
   const [operationType, setOperationType] = useState(
     () => searchParams.get("operation_type") || ""
+  );
+  const [insiderGroup, setInsiderGroup] = useState(
+    () => searchParams.get("insider_group") || ""
   );
   const [dateFrom, setDateFrom] = useState(
     () => searchParams.get("date_from") || ""
@@ -211,6 +224,7 @@ function MovimentaçõesContent() {
       if (fp.companyId) params.company_id = fp.companyId;
       if (fp.assetTypes.length) params.asset_type = fp.assetTypes.join(",");
       if (fp.operationType) params.operation_type = fp.operationType;
+      if (fp.insiderGroup) params.insider_group = fp.insiderGroup;
       if (fp.dateFrom) params.date_from = fp.dateFrom;
       if (fp.dateTo) params.date_to = fp.dateTo;
       if (fp.valueMin) params.value_min = parseFloat(fp.valueMin);
@@ -224,6 +238,7 @@ function MovimentaçõesContent() {
         company_id: fp.companyId,
         asset_type: fp.assetTypes.length ? fp.assetTypes.join(",") : null,
         operation_type: fp.operationType || null,
+        insider_group: fp.insiderGroup || null,
         date_from: fp.dateFrom || null,
         date_to: fp.dateTo || null,
         value_min: fp.valueMin || null,
@@ -259,6 +274,7 @@ function MovimentaçõesContent() {
       companyId: initCompanyId,
       assetTypes: searchParams.get("asset_type")?.split(",") || [],
       operationType: searchParams.get("operation_type") || "",
+      insiderGroup: searchParams.get("insider_group") || "",
       dateFrom: searchParams.get("date_from") || "",
       dateTo: searchParams.get("date_to") || "",
       valueMin: searchParams.get("value_min") || "",
@@ -284,6 +300,7 @@ function MovimentaçõesContent() {
       companyId,
       assetTypes,
       operationType,
+      insiderGroup,
       dateFrom,
       dateTo,
       valueMin,
@@ -299,6 +316,7 @@ function MovimentaçõesContent() {
       companyId: null,
       assetTypes: [],
       operationType: "",
+      insiderGroup: "",
       dateFrom: "",
       dateTo: "",
       valueMin: "",
@@ -312,6 +330,7 @@ function MovimentaçõesContent() {
     setCompanySearch("");
     setAssetTypes([]);
     setOperationType("");
+    setInsiderGroup("");
     setDateFrom("");
     setDateTo("");
     setValueMin("");
@@ -395,6 +414,7 @@ function MovimentaçõesContent() {
       companyId,
       assetTypes,
       operationType,
+      insiderGroup,
       dateFrom,
       dateTo,
       valueMin,
@@ -412,6 +432,7 @@ function MovimentaçõesContent() {
       companyId,
       assetTypes,
       operationType,
+      insiderGroup,
       dateFrom,
       dateTo,
       valueMin,
@@ -429,6 +450,7 @@ function MovimentaçõesContent() {
       companyId,
       assetTypes,
       operationType,
+      insiderGroup,
       dateFrom,
       dateTo,
       valueMin,
@@ -457,6 +479,7 @@ function MovimentaçõesContent() {
     if (companyId) sp.set("company_id", String(companyId));
     if (assetTypes.length) sp.set("asset_type", assetTypes.join(","));
     if (operationType) sp.set("operation_type", operationType);
+    if (insiderGroup) sp.set("insider_group", insiderGroup);
     if (dateFrom) sp.set("date_from", dateFrom);
     if (dateTo) sp.set("date_to", dateTo);
     if (valueMin) sp.set("value_min", valueMin);
@@ -545,6 +568,15 @@ function MovimentaçõesContent() {
           ),
       },
       {
+        accessorKey: "insider_group",
+        header: () => "Grupo",
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {row.original.insider_group || "\u2014"}
+          </span>
+        ),
+      },
+      {
         accessorKey: "quantity",
         header: ({ column }) => (
           <SortHeader column={column} className="justify-end">
@@ -614,6 +646,7 @@ function MovimentaçõesContent() {
     companyId !== null ||
     assetTypes.length > 0 ||
     !!operationType ||
+    !!insiderGroup ||
     !!dateFrom ||
     !!dateTo ||
     !!valueMin ||
@@ -678,6 +711,23 @@ function MovimentaçõesContent() {
               <SelectItem value="all">Todas</SelectItem>
               <SelectItem value="Compra">Compra</SelectItem>
               <SelectItem value="Venda">Venda</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={insiderGroup || "all"}
+            onValueChange={(v) => setInsiderGroup(v === "all" ? "" : v)}
+          >
+            <SelectTrigger className="w-full sm:w-[220px]">
+              <SelectValue placeholder="Grupo do Insider" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os grupos</SelectItem>
+              {INSIDER_GROUPS.map((g) => (
+                <SelectItem key={g.value} value={g.value}>
+                  {g.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

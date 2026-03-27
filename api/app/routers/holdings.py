@@ -5,12 +5,36 @@ import io
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from api.app.database import get_cursor
 
 router = APIRouter(prefix="/holdings", tags=["holdings"])
+
+_VALID_INSIDER_GROUPS = [
+    "Controlador",
+    "Conselho de Administracao",
+    "Diretoria",
+    "Conselho Fiscal",
+    "Orgaos Tecnicos",
+    "Pessoas Ligadas",
+]
+
+_INSIDER_GROUP_LOWER = {g.lower(): g for g in _VALID_INSIDER_GROUPS}
+
+
+def _validate_insider_group(value: str | None) -> str | None:
+    """Validate and normalize insider_group (case-insensitive). Returns canonical value or raises 400."""
+    if value is None:
+        return None
+    canonical = _INSIDER_GROUP_LOWER.get(value.lower())
+    if canonical is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"insider_group invalido. Valores aceitos: {', '.join(_VALID_INSIDER_GROUPS)}",
+        )
+    return canonical
 
 # Allowed sort columns to prevent SQL injection
 _SORT_COLUMNS = {
@@ -35,6 +59,7 @@ def _build_holdings_query(
     value_min: float | None,
     value_max: float | None,
     section: str | None = None,
+    insider_group: str | None = None,
 ) -> tuple[str, list[Any], dict[str, Any]]:
     """Build WHERE clause, params, and filters_applied dict for holdings queries."""
     conditions = ["h.confidence != 'baixa'"]
@@ -79,6 +104,10 @@ def _build_holdings_query(
         conditions.append("h.total_value <= %s")
         params.append(value_max)
         filters_applied["value_max"] = value_max
+    if insider_group is not None:
+        conditions.append("LOWER(h.insider_group) = LOWER(%s)")
+        params.append(insider_group)
+        filters_applied["insider_group"] = insider_group
 
     where = "WHERE " + " AND ".join(conditions)
     return where, params, filters_applied
@@ -94,14 +123,17 @@ async def list_holdings(
     value_min: float | None = None,
     value_max: float | None = None,
     section: str | None = None,
+    insider_group: str | None = None,
     sort_by: str = Query("operation_date", pattern="^(operation_date|total_value|quantity|asset_type|company_name|operation_type|unit_price|broker|company_ticker)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
 ) -> dict[str, Any]:
     """List holdings with filters."""
+    validated_group = _validate_insider_group(insider_group)
     where, params, filters_applied = _build_holdings_query(
         company_id, asset_type, operation_type, date_from, date_to, value_min, value_max, section,
+        insider_group=validated_group,
     )
     offset = (page - 1) * per_page
     sort_col = _SORT_COLUMNS.get(sort_by, "h.operation_date")
@@ -161,12 +193,15 @@ async def export_holdings(
     value_min: float | None = None,
     value_max: float | None = None,
     section: str | None = None,
+    insider_group: str | None = None,
     sort_by: str = Query("operation_date", pattern="^(operation_date|total_value|quantity|asset_type|company_name|operation_type|unit_price|broker|company_ticker)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
 ) -> StreamingResponse:
     """Export holdings as CSV (max 10000 records)."""
+    validated_group = _validate_insider_group(insider_group)
     where, params, _ = _build_holdings_query(
         company_id, asset_type, operation_type, date_from, date_to, value_min, value_max, section,
+        insider_group=validated_group,
     )
     sort_col = _SORT_COLUMNS.get(sort_by, "h.operation_date")
     order = "ASC" if sort_order == "asc" else "DESC"

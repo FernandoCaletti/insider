@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from api.app.database import get_cursor
+from api.app.routers.holdings import _validate_insider_group
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -60,13 +61,22 @@ async def dashboard_summary() -> dict[str, Any]:
 @router.get("/recent-movements")
 async def recent_movements(
     days: int = Query(30, ge=1, le=365),
+    insider_group: str | None = None,
     limit: int = Query(10, ge=1, le=100),
 ) -> dict[str, Any]:
     """Get top recent movements by value."""
+    validated_group = _validate_insider_group(insider_group)
     since = date.today() - timedelta(days=days)
+
+    group_cond = ""
+    group_params: list[Any] = []
+    if validated_group:
+        group_cond = "AND LOWER(h.insider_group) = LOWER(%s)"
+        group_params = [validated_group]
+
     with get_cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT
                 h.id,
                 c.id AS company_id,
@@ -86,10 +96,11 @@ async def recent_movements(
             WHERE h.section = 'movimentacoes'
               AND h.confidence != 'baixa'
               AND h.operation_date >= %s
+              {group_cond}
             ORDER BY ABS(h.total_value) DESC NULLS LAST
             LIMIT %s
             """,
-            [since, limit],
+            [since, *group_params, limit],
         )
         rows = cur.fetchall()
 
