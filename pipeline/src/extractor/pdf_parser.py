@@ -116,6 +116,108 @@ def detect_insider_group(form_text: str, tables: list[list[list[str | None]]] | 
                         return group_name
     return None
 
+
+# ---------------------------------------------------------------------------
+# Insider name detection
+# ---------------------------------------------------------------------------
+
+# Patterns for the insider name label in form text.
+# CVM forms typically have "Nome:" or "Informante:" followed by the name.
+_INSIDER_NAME_PATTERNS: list[re.Pattern[str]] = [
+    # "Nome: FULANO DE TAL" or "Nome do Informante: FULANO"
+    re.compile(
+        r"(?:Nome(?:\s+do\s+(?:Informante|Declarante))?\s*[:\-]\s*)([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑa-záàâãéèêíïóôõöúçñ\s.'-]{2,80})",
+        re.MULTILINE,
+    ),
+    # "Informante: FULANO DE TAL"
+    re.compile(
+        r"Informante\s*[:\-]\s*([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑa-záàâãéèêíïóôõöúçñ\s.'-]{2,80})",
+        re.MULTILINE,
+    ),
+]
+
+
+def detect_insider_name(form_text: str, tables: list[list[list[str | None]]] | None = None) -> str | None:
+    """Extract the insider's name from form text or table cells.
+
+    Searches for labels like 'Nome:', 'Informante:', etc. followed by
+    a person's name.  Returns the cleaned name or ``None``.
+    """
+    # Search in form text
+    for pattern in _INSIDER_NAME_PATTERNS:
+        m = pattern.search(form_text)
+        if m:
+            name = m.group(1).strip().rstrip(".")
+            # Skip obviously wrong matches (too short or looks like a section header)
+            if len(name) >= 3 and not _is_section_label(name):
+                return name
+
+    # Search in table cells
+    if tables:
+        for table in tables:
+            for row in table:
+                if not row:
+                    continue
+                for i, cell in enumerate(row):
+                    cell_text = str(cell or "").strip()
+                    cell_lower = cell_text.lower()
+                    if cell_lower in ("nome", "informante", "nome do informante", "nome do declarante"):
+                        # Name should be in the next cell
+                        if i + 1 < len(row):
+                            name = str(row[i + 1] or "").strip()
+                            if len(name) >= 3 and not _is_section_label(name):
+                                return name
+
+    return None
+
+
+def _is_section_label(text: str) -> bool:
+    """Return True if *text* looks like a section header, not a name."""
+    lower = text.lower()
+    return any(
+        kw in lower
+        for kw in ("saldo", "movimenta", "inicial", "final", "formulário", "consolidado", "valores")
+    )
+
+
+# ---------------------------------------------------------------------------
+# Transaction day extraction
+# ---------------------------------------------------------------------------
+
+
+def extract_transaction_day(operation_date: str | None, raw_date: str | None = None) -> int | None:
+    """Extract the day-of-month from a parsed operation date or raw date string.
+
+    Args:
+        operation_date: Parsed date in YYYY-MM-DD format.
+        raw_date: Raw date string from PDF (e.g. "29", "15/03/2025").
+
+    Returns:
+        Day of month (1-31) or None.
+    """
+    # Try from parsed operation_date (YYYY-MM-DD)
+    if operation_date and len(operation_date) >= 10:
+        try:
+            return int(operation_date[8:10])
+        except (ValueError, IndexError):
+            pass
+
+    # Try from raw date string
+    if raw_date:
+        raw = raw_date.strip()
+        # Bare day number (from "Dia" column)
+        if re.match(r"^\d{1,2}$", raw):
+            day = int(raw)
+            if 1 <= day <= 31:
+                return day
+        # DD/MM/YYYY
+        m = re.match(r"(\d{2})/\d{2}/\d{4}", raw)
+        if m:
+            return int(m.group(1))
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -136,6 +238,8 @@ class HoldingRecord:
     broker: str | None = None
     confidence: Confidence = "alta"
     insider_group: str | None = None
+    insider_name: str | None = None
+    transaction_day: int | None = None
 
 
 @dataclass
@@ -407,6 +511,7 @@ def _parse_row_to_record(
         record.operation_type = _get_cell(cells, col_map.get("operation")) or None
         raw_date = _get_cell(cells, col_map.get("date"))
         record.operation_date = parse_date(raw_date, ref_month, ref_year) if raw_date else None
+        record.transaction_day = extract_transaction_day(record.operation_date, raw_date or None)
         record.broker = concatenate_broker_lines(
             _get_cell(cells, col_map.get("broker")) or None
         )
@@ -512,12 +617,15 @@ def _extract_from_text(
             m = _MOVE_ROW_RE.match(line.strip())
             if m:
                 desc = m.group(1).strip()
+                raw_date_str = m.group(3)
+                parsed_date = parse_date(raw_date_str)
                 rec = HoldingRecord(
                     section="movimentacoes",
                     asset_type=classify_asset_type(desc),
                     asset_description=desc[:500],
                     operation_type=m.group(2).strip(),
-                    operation_date=parse_date(m.group(3)),
+                    operation_date=parsed_date,
+                    transaction_day=extract_transaction_day(parsed_date, raw_date_str),
                     quantity=normalize_number(m.group(4)),
                     unit_price=normalize_price(m.group(5)),
                     total_value=normalize_number(m.group(6)),
@@ -635,6 +743,9 @@ def _parse_form(
     # Detect insider group (Controlador, Conselho, Diretoria, etc.)
     insider_group = detect_insider_group(form_text, tables)
 
+    # Detect insider name
+    insider_name = detect_insider_name(form_text, tables)
+
     # Determine section markers in the text
     lines = form_text.split("\n")
 
@@ -647,9 +758,10 @@ def _parse_form(
     if not result.holdings:
         result.holdings = _extract_from_text(lines)
 
-    # Tag all holdings with the insider group
+    # Tag all holdings with the insider group and name
     for h in result.holdings:
         h.insider_group = insider_group
+        h.insider_name = insider_name
 
     # For no-operations forms keep only inicial/final
     if not result.has_operations:

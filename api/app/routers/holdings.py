@@ -221,6 +221,7 @@ async def export_holdings(
                 h.unit_price AS preco_unitario,
                 h.total_value AS valor_total,
                 h.broker AS corretora,
+                h.insider_name AS nome_insider,
                 h.section AS secao,
                 h.confidence AS confianca,
                 d.reference_date AS data_referencia
@@ -243,7 +244,7 @@ async def export_holdings(
         for row in rows:
             writer.writerow(dict(row))  # type: ignore[arg-type]
     else:
-        output.write("empresa,ticker,data,tipo_ativo,descricao,operacao,quantidade,preco_unitario,valor_total,corretora,secao,confianca,data_referencia\n")
+        output.write("empresa,ticker,data,tipo_ativo,descricao,operacao,quantidade,preco_unitario,valor_total,corretora,nome_insider,secao,confianca,data_referencia\n")
 
     output.seek(0)
     return StreamingResponse(

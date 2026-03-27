@@ -307,11 +307,12 @@ def upsert_holdings(
         INSERT INTO holdings
             (document_id, section, asset_type, asset_description, quantity,
              unit_price, total_value, operation_type, operation_date, broker,
-             confidence, insider_group)
+             confidence, insider_group, insider_name, transaction_day)
         VALUES
             (%(document_id)s, %(section)s, %(asset_type)s, %(asset_description)s,
              %(quantity)s, %(unit_price)s, %(total_value)s, %(operation_type)s,
-             %(operation_date)s, %(broker)s, %(confidence)s, %(insider_group)s)
+             %(operation_date)s, %(broker)s, %(confidence)s, %(insider_group)s,
+             %(insider_name)s, %(transaction_day)s)
     """
 
     conn = psycopg2.connect(database_url)
@@ -337,6 +338,8 @@ def upsert_holdings(
                         "broker": h.broker,
                         "confidence": h.confidence,
                         "insider_group": h.insider_group,
+                        "insider_name": h.insider_name,
+                        "transaction_day": h.transaction_day,
                     }
                     for h in batch
                 ]
