@@ -128,6 +128,34 @@ export interface RankingEntry {
   total_quantity: number;
 }
 
+export interface RoleRankingEntry {
+  insider_group: string;
+  total_operations: number;
+  total_value: number;
+  companies_count: number;
+  buy_count: number;
+  sell_count: number;
+}
+
+export interface BrokerRankingEntry {
+  broker: string;
+  total_operations: number;
+  total_value: number;
+  companies_count: number;
+  buy_count: number;
+  sell_count: number;
+}
+
+export interface AlertRankingEntry {
+  company_id: number;
+  company_name: string;
+  ticker: string | null;
+  alert_count: number;
+  critical_count: number;
+  high_count: number;
+  unread_count: number;
+}
+
 export interface LargestPosition {
   company_id: number;
   company_name: string;

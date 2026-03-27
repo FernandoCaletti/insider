@@ -163,6 +163,134 @@ async def most_active(
     return {"data": [dict(r) for r in rows], "period": period}  # type: ignore[arg-type]
 
 
+@router.get("/by-role")
+async def by_role(
+    period: str = Query("30d", pattern="^(7d|30d|90d|12m|all)$"),
+    limit: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    """Get rankings grouped by insider role (insider_group)."""
+    since = _period_since(period)
+    date_cond, date_params = _date_condition(since)
+
+    with get_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                h.insider_group,
+                COUNT(*) AS total_operations,
+                COALESCE(SUM(ABS(h.total_value)), 0) AS total_value,
+                COUNT(DISTINCT d.company_id) AS companies_count,
+                COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Compra%%' THEN 1 ELSE 0 END), 0) AS buy_count,
+                COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Venda%%' THEN 1 ELSE 0 END), 0) AS sell_count
+            FROM holdings h
+            JOIN documents d ON d.id = h.document_id
+            WHERE h.section = 'movimentacoes'
+              AND h.confidence != 'baixa'
+              AND h.insider_group IS NOT NULL
+              {date_cond}
+            GROUP BY h.insider_group
+            ORDER BY total_value DESC
+            LIMIT %s
+            """,
+            [*date_params, limit],
+        )
+        rows = cur.fetchall()
+
+    return {"data": [dict(r) for r in rows], "period": period}  # type: ignore[arg-type]
+
+
+@router.get("/by-broker")
+async def by_broker(
+    period: str = Query("30d", pattern="^(7d|30d|90d|12m|all)$"),
+    insider_group: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    """Get rankings grouped by broker."""
+    validated_group = _validate_insider_group(insider_group)
+    since = _period_since(period)
+    date_cond, date_params = _date_condition(since)
+    group_cond, group_params = _group_condition(validated_group)
+
+    with get_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                h.broker,
+                COUNT(*) AS total_operations,
+                COALESCE(SUM(ABS(h.total_value)), 0) AS total_value,
+                COUNT(DISTINCT d.company_id) AS companies_count,
+                COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Compra%%' THEN 1 ELSE 0 END), 0) AS buy_count,
+                COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Venda%%' THEN 1 ELSE 0 END), 0) AS sell_count
+            FROM holdings h
+            JOIN documents d ON d.id = h.document_id
+            WHERE h.section = 'movimentacoes'
+              AND h.confidence != 'baixa'
+              AND h.broker IS NOT NULL
+              AND h.broker != ''
+              {date_cond}
+              {group_cond}
+            GROUP BY h.broker
+            ORDER BY total_value DESC
+            LIMIT %s
+            """,
+            [*date_params, *group_params, limit],
+        )
+        rows = cur.fetchall()
+
+    return {"data": [dict(r) for r in rows], "period": period}  # type: ignore[arg-type]
+
+
+@router.get("/by-alerts")
+async def by_alerts(
+    period: str = Query("30d", pattern="^(7d|30d|90d|12m|all)$"),
+    alert_type: str | None = None,
+    severity: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    """Get companies ranked by alert count."""
+    since = _period_since(period)
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    if since is not None:
+        conditions.append("a.created_at >= %s")
+        params.append(since)
+    if alert_type:
+        conditions.append("a.alert_type = %s")
+        params.append(alert_type)
+    if severity:
+        conditions.append("a.severity = %s")
+        params.append(severity)
+
+    where = ""
+    if conditions:
+        where = "WHERE " + " AND ".join(conditions)
+
+    with get_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                c.id AS company_id,
+                c.name AS company_name,
+                c.ticker,
+                COUNT(*) AS alert_count,
+                COALESCE(SUM(CASE WHEN a.severity = 'critical' THEN 1 ELSE 0 END), 0) AS critical_count,
+                COALESCE(SUM(CASE WHEN a.severity = 'high' THEN 1 ELSE 0 END), 0) AS high_count,
+                COALESCE(SUM(CASE WHEN a.is_read = FALSE THEN 1 ELSE 0 END), 0) AS unread_count
+            FROM alerts a
+            JOIN companies c ON c.id = a.company_id
+            {where}
+            GROUP BY c.id, c.name, c.ticker
+            ORDER BY alert_count DESC
+            LIMIT %s
+            """,
+            [*params, limit],
+        )
+        rows = cur.fetchall()
+
+    return {"data": [dict(r) for r in rows], "period": period}  # type: ignore[arg-type]
+
+
 @router.get("/largest-positions")
 async def largest_positions(
     asset_type: str | None = None,
