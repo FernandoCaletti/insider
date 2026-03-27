@@ -49,6 +49,29 @@ class ApiClient {
 
     return response.json();
   }
+
+  async patch<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const { params, ...fetchOptions } = options;
+    const url = this.buildUrl(path, params);
+    const response = await fetch(url, {
+      ...fetchOptions,
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...fetchOptions.headers,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new ApiError(
+        response.status,
+        error?.error?.message || response.statusText
+      );
+    }
+
+    return response.json();
+  }
 }
 
 export class ApiError extends Error {
