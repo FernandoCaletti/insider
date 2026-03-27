@@ -13,6 +13,7 @@ from pipeline.src.collector.cvm_client import (
     CompanyRecord,
     DividendRecord,
     FinancialStatementRecord,
+    InsiderPositionRecord,
     MaterialFactRecord,
 )
 from pipeline.src.extractor.pdf_parser import HoldingRecord
@@ -640,6 +641,113 @@ def upsert_dividends(
     except Exception:
         conn.rollback()
         logger.exception("Error upserting dividends")
+        raise
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Insider positions upsert
+# ---------------------------------------------------------------------------
+
+
+def upsert_insider_positions(
+    database_url: str,
+    records: list[InsiderPositionRecord],
+    company_map: dict[str, int],
+    batch_size: int = 100,
+) -> int:
+    """Batch upsert insider position records into the insider_positions table.
+
+    Uses ON CONFLICT (company_id, insider_name, reference_date, asset_type)
+    for idempotent imports. Skips records whose cvm_code is not in company_map.
+
+    Args:
+        database_url: PostgreSQL connection string.
+        records: List of InsiderPositionRecord from CVM CSV.
+        company_map: Mapping of cvm_code -> company_id.
+        batch_size: Number of records per batch.
+
+    Returns:
+        Number of records upserted.
+    """
+    if not records:
+        return 0
+
+    upsert_sql = """
+        INSERT INTO insider_positions
+            (company_id, insider_name, insider_group, cpf_cnpj,
+             reference_date, asset_type, asset_description, quantity,
+             total_value, source_url)
+        VALUES
+            (%(company_id)s, %(insider_name)s, %(insider_group)s, %(cpf_cnpj)s,
+             %(reference_date)s, %(asset_type)s, %(asset_description)s,
+             %(quantity)s, %(total_value)s, %(source_url)s)
+        ON CONFLICT (company_id, insider_name, reference_date, asset_type)
+        DO UPDATE SET
+            insider_group = EXCLUDED.insider_group,
+            cpf_cnpj = EXCLUDED.cpf_cnpj,
+            asset_description = EXCLUDED.asset_description,
+            quantity = EXCLUDED.quantity,
+            total_value = EXCLUDED.total_value,
+            source_url = EXCLUDED.source_url
+    """
+
+    conn = psycopg2.connect(database_url)
+    try:
+        total_upserted = 0
+        skipped = 0
+        with conn.cursor() as cur:
+            for i in range(0, len(records), batch_size):
+                batch = records[i : i + batch_size]
+                params: list[dict[str, Any]] = []
+                for r in batch:
+                    company_id = company_map.get(r.cvm_code)
+                    if company_id is None:
+                        skipped += 1
+                        continue
+                    # Convert quantity string to float or None
+                    qty: float | None = None
+                    if r.quantity:
+                        try:
+                            qty = float(r.quantity.replace(",", "."))
+                        except ValueError:
+                            qty = None
+                    # Convert total_value string to float or None
+                    tv: float | None = None
+                    if r.total_value:
+                        try:
+                            tv = float(r.total_value.replace(",", "."))
+                        except ValueError:
+                            tv = None
+                    params.append(
+                        {
+                            "company_id": company_id,
+                            "insider_name": r.insider_name,
+                            "insider_group": r.insider_group or None,
+                            "cpf_cnpj": r.cpf_cnpj or None,
+                            "reference_date": r.reference_date or None,
+                            "asset_type": r.asset_type or "",
+                            "asset_description": r.asset_description or None,
+                            "quantity": qty,
+                            "total_value": tv,
+                            "source_url": None,
+                        }
+                    )
+                if params:
+                    psycopg2.extras.execute_batch(cur, upsert_sql, params)
+                    total_upserted += len(params)
+
+        conn.commit()
+        logger.info(
+            "Upserted %d insider positions (%d skipped - unknown company)",
+            total_upserted,
+            skipped,
+        )
+        return total_upserted
+    except Exception:
+        conn.rollback()
+        logger.exception("Error upserting insider positions")
         raise
     finally:
         conn.close()

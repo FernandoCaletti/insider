@@ -739,3 +739,194 @@ def fetch_and_parse_dividends(
     content = raw_csv_bytes.decode("iso-8859-1")
     logger.info("Extracted %s (%d bytes)", prov_filename, len(raw_csv_bytes))
     return parse_dividends_csv(content)
+
+
+# ---------------------------------------------------------------------------
+# Insider Positions CSV (FRE — Formulário de Referência, posição acionária)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class InsiderPositionRecord:
+    """A CVM insider position record from the FRE position CSV."""
+
+    cvm_code: str
+    insider_name: str
+    insider_group: str  # Tipo/category of the shareholder
+    cpf_cnpj: str
+    reference_date: str  # YYYY-MM-DD
+    asset_type: str  # ON, PN, etc.
+    asset_description: str
+    quantity: str  # raw string, converted downstream
+    total_value: str  # raw string, converted downstream
+    version: str
+
+
+def fetch_positions_zip(
+    year: int,
+    base_url: str = "https://dados.cvm.gov.br",
+) -> bytes:
+    """Download annual CVM FRE ZIP containing insider position data.
+
+    Args:
+        year: The year to download.
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        Raw ZIP bytes.
+    """
+    url = f"{base_url}/dados/CIA_ABERTA/DOC/FRE/DADOS/fre_cia_aberta_{year}.zip"
+    logger.info("Downloading FRE ZIP from %s", url)
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "InsiderTrack/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=120) as response:
+        raw_bytes: bytes = response.read()
+
+    logger.info("Downloaded FRE ZIP (%d bytes)", len(raw_bytes))
+    return raw_bytes
+
+
+def parse_positions_csv(
+    csv_content: str,
+) -> list[InsiderPositionRecord]:
+    """Parse FRE position CSV into InsiderPositionRecord list.
+
+    Supports both legacy and current CVM column names.
+
+    Args:
+        csv_content: Raw CSV string (ISO-8859-1 decoded).
+
+    Returns:
+        List of InsiderPositionRecord.
+    """
+    reader = csv.DictReader(io.StringIO(csv_content), delimiter=";")
+
+    records: list[InsiderPositionRecord] = []
+    for row in reader:
+        cvm_code = _get_field(row, "CD_CVM", "Codigo_CVM")
+        if not cvm_code:
+            continue
+
+        nome = _get_field(
+            row,
+            "Nome_Controlador",
+            "Nome_Acionista",
+            "NOME_CONTROLADOR",
+            "NOME_ACIONISTA",
+        )
+        if not nome:
+            continue
+
+        tipo = _get_field(
+            row,
+            "Tipo_Controlador",
+            "Tipo_Acionista",
+            "TP_CONTROLADOR",
+            "TP_ACIONISTA",
+        )
+        cpf_cnpj = _get_field(
+            row,
+            "CPF_CNPJ_Controlador",
+            "CPF_CNPJ_Acionista",
+            "CPF_CNPJ",
+        )
+        dt_refer = _get_field(row, "DT_REFER", "Data_Referencia")
+        especie = _get_field(
+            row,
+            "Especie_Acao",
+            "Tipo_Acao",
+            "ESPECIE_ACAO",
+            "TP_ACAO",
+        )
+        descricao = _get_field(
+            row,
+            "Descricao_Acao",
+            "DS_ACAO",
+            "Descricao",
+        )
+        quantidade = _get_field(
+            row,
+            "Quantidade_Acoes",
+            "QTD_ACOES",
+            "QTD",
+            "Quantidade",
+        )
+        valor = _get_field(
+            row,
+            "Valor_Total",
+            "VL_TOTAL",
+            "Valor",
+        )
+        versao = _get_field(row, "VERSAO", "Versao")
+
+        if not dt_refer:
+            continue
+
+        records.append(
+            InsiderPositionRecord(
+                cvm_code=cvm_code,
+                insider_name=nome,
+                insider_group=tipo,
+                cpf_cnpj=cpf_cnpj,
+                reference_date=dt_refer,
+                asset_type=especie or "",
+                asset_description=descricao,
+                quantity=quantidade,
+                total_value=valor,
+                version=versao,
+            )
+        )
+
+    logger.info("Parsed %d insider position records from FRE CSV", len(records))
+    return records
+
+
+def fetch_and_parse_positions(
+    year: int,
+    base_url: str = "https://dados.cvm.gov.br",
+) -> list[InsiderPositionRecord]:
+    """Fetch and parse CVM insider position data for a given year.
+
+    Downloads the FRE ZIP, extracts the position CSV, and parses it
+    into InsiderPositionRecord objects.
+
+    Args:
+        year: The year to fetch positions for.
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        List of insider position records.
+    """
+    zip_bytes = fetch_positions_zip(year, base_url)
+
+    # Extract position CSV from FRE ZIP
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = zf.namelist()
+        # Look for position CSV (case-insensitive)
+        pos_filename = None
+        for n in names:
+            nl = n.lower()
+            if nl.endswith(".csv") and (
+                "posicao_acionaria" in nl
+                or "controlador" in nl
+            ):
+                pos_filename = n
+                break
+
+        if pos_filename is None:
+            logger.warning(
+                "No position CSV found in FRE ZIP for year %d. "
+                "Available files: %s",
+                year,
+                names,
+            )
+            return []
+
+        raw_csv_bytes = zf.read(pos_filename)
+
+    content = raw_csv_bytes.decode("iso-8859-1")
+    logger.info("Extracted %s (%d bytes)", pos_filename, len(raw_csv_bytes))
+    return parse_positions_csv(content)
