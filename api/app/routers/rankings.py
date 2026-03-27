@@ -1,4 +1,9 @@
-"""Rankings endpoints."""
+"""Rankings endpoints.
+
+Uses materialized views (mv_rankings_*) for faster query performance.
+Views are refreshed via POST /rankings/refresh after data syncs.
+Falls back to direct queries if views don't exist yet.
+"""
 
 from datetime import date, timedelta
 from typing import Any
@@ -19,6 +24,16 @@ _PERIOD_DAYS: dict[str, int | None] = {
     "all": None,
 }
 
+# All materialized view names used by rankings
+_MV_NAMES = [
+    "mv_rankings_top_buyers",
+    "mv_rankings_top_sellers",
+    "mv_rankings_most_active",
+    "mv_rankings_by_role",
+    "mv_rankings_by_broker",
+    "mv_dashboard_summary",
+]
+
 
 def _period_since(period: str) -> date | None:
     """Convert period string to a since-date, or None for 'all'."""
@@ -28,18 +43,44 @@ def _period_since(period: str) -> date | None:
     return date.today() - timedelta(days=days)
 
 
-def _date_condition(since: date | None) -> tuple[str, list[Any]]:
+def _date_condition(
+    since: date | None, col: str = "operation_date"
+) -> tuple[str, list[Any]]:
     """Return SQL condition and params for date filtering."""
     if since is None:
         return "", []
-    return "AND h.operation_date >= %s", [since]
+    return f"AND {col} >= %s", [since]
 
 
-def _group_condition(insider_group: str | None) -> tuple[str, list[Any]]:
+def _group_condition(
+    insider_group: str | None, col: str = "insider_group"
+) -> tuple[str, list[Any]]:
     """Return SQL condition and params for insider_group filtering."""
     if insider_group is None:
         return "", []
-    return "AND LOWER(h.insider_group) = LOWER(%s)", [insider_group]
+    return f"AND LOWER({col}) = LOWER(%s)", [insider_group]
+
+
+def _mv_exists(cur: Any, mv_name: str) -> bool:
+    """Check if a materialized view exists."""
+    cur.execute(
+        "SELECT EXISTS(SELECT 1 FROM pg_matviews WHERE matviewname = %s)",
+        [mv_name],
+    )
+    row = cur.fetchone()
+    return bool(row["exists"]) if row else False  # type: ignore[index]
+
+
+@router.post("/refresh")
+async def refresh_materialized_views() -> dict[str, Any]:
+    """Refresh all ranking materialized views. Call after data syncs."""
+    refreshed: list[str] = []
+    with get_cursor() as cur:
+        for mv_name in _MV_NAMES:
+            if _mv_exists(cur, mv_name):
+                cur.execute(f"REFRESH MATERIALIZED VIEW {mv_name}")  # noqa: S608
+                refreshed.append(mv_name)
+    return {"refreshed": refreshed, "count": len(refreshed)}
 
 
 @router.get("/top-buyers")
@@ -55,29 +96,50 @@ async def top_buyers(
     group_cond, group_params = _group_condition(validated_group)
 
     with get_cursor() as cur:
-        cur.execute(
-            f"""
-            SELECT
-                c.id AS company_id,
-                c.name AS company_name,
-                c.ticker,
-                COUNT(*) AS total_operations,
-                COALESCE(SUM(h.total_value), 0) AS total_value,
-                COALESCE(SUM(h.quantity), 0) AS total_quantity
-            FROM holdings h
-            JOIN documents d ON d.id = h.document_id
-            JOIN companies c ON c.id = d.company_id
-            WHERE h.section = 'movimentacoes'
-              AND h.confidence != 'baixa'
-              AND h.operation_type ILIKE 'Compra%%'
-              {date_cond}
-              {group_cond}
-            GROUP BY c.id, c.name, c.ticker
-            ORDER BY total_value DESC
-            LIMIT %s
-            """,
-            [*date_params, *group_params, limit],
-        )
+        if _mv_exists(cur, "mv_rankings_top_buyers"):
+            cur.execute(
+                f"""
+                SELECT
+                    company_id,
+                    company_name,
+                    ticker,
+                    SUM(op_count) AS total_operations,
+                    SUM(total_value) AS total_value,
+                    SUM(total_quantity) AS total_quantity
+                FROM mv_rankings_top_buyers
+                WHERE TRUE
+                  {date_cond}
+                  {group_cond}
+                GROUP BY company_id, company_name, ticker
+                ORDER BY total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, *group_params, limit],
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT
+                    c.id AS company_id,
+                    c.name AS company_name,
+                    c.ticker,
+                    COUNT(*) AS total_operations,
+                    COALESCE(SUM(h.total_value), 0) AS total_value,
+                    COALESCE(SUM(h.quantity), 0) AS total_quantity
+                FROM holdings h
+                JOIN documents d ON d.id = h.document_id
+                JOIN companies c ON c.id = d.company_id
+                WHERE h.section = 'movimentacoes'
+                  AND h.confidence != 'baixa'
+                  AND h.operation_type ILIKE 'Compra%%'
+                  {date_cond}
+                  {group_cond}
+                GROUP BY c.id, c.name, c.ticker
+                ORDER BY total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, *group_params, limit],
+            )
         rows = cur.fetchall()
 
     return {"data": [dict(r) for r in rows], "period": period}  # type: ignore[arg-type]
@@ -96,29 +158,50 @@ async def top_sellers(
     group_cond, group_params = _group_condition(validated_group)
 
     with get_cursor() as cur:
-        cur.execute(
-            f"""
-            SELECT
-                c.id AS company_id,
-                c.name AS company_name,
-                c.ticker,
-                COUNT(*) AS total_operations,
-                COALESCE(SUM(ABS(h.total_value)), 0) AS total_value,
-                COALESCE(SUM(h.quantity), 0) AS total_quantity
-            FROM holdings h
-            JOIN documents d ON d.id = h.document_id
-            JOIN companies c ON c.id = d.company_id
-            WHERE h.section = 'movimentacoes'
-              AND h.confidence != 'baixa'
-              AND h.operation_type ILIKE 'Venda%%'
-              {date_cond}
-              {group_cond}
-            GROUP BY c.id, c.name, c.ticker
-            ORDER BY total_value DESC
-            LIMIT %s
-            """,
-            [*date_params, *group_params, limit],
-        )
+        if _mv_exists(cur, "mv_rankings_top_sellers"):
+            cur.execute(
+                f"""
+                SELECT
+                    company_id,
+                    company_name,
+                    ticker,
+                    SUM(op_count) AS total_operations,
+                    SUM(total_value) AS total_value,
+                    SUM(total_quantity) AS total_quantity
+                FROM mv_rankings_top_sellers
+                WHERE TRUE
+                  {date_cond}
+                  {group_cond}
+                GROUP BY company_id, company_name, ticker
+                ORDER BY total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, *group_params, limit],
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT
+                    c.id AS company_id,
+                    c.name AS company_name,
+                    c.ticker,
+                    COUNT(*) AS total_operations,
+                    COALESCE(SUM(ABS(h.total_value)), 0) AS total_value,
+                    COALESCE(SUM(h.quantity), 0) AS total_quantity
+                FROM holdings h
+                JOIN documents d ON d.id = h.document_id
+                JOIN companies c ON c.id = d.company_id
+                WHERE h.section = 'movimentacoes'
+                  AND h.confidence != 'baixa'
+                  AND h.operation_type ILIKE 'Venda%%'
+                  {date_cond}
+                  {group_cond}
+                GROUP BY c.id, c.name, c.ticker
+                ORDER BY total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, *group_params, limit],
+            )
         rows = cur.fetchall()
 
     return {"data": [dict(r) for r in rows], "period": period}  # type: ignore[arg-type]
@@ -137,27 +220,47 @@ async def most_active(
     group_cond, group_params = _group_condition(validated_group)
 
     with get_cursor() as cur:
-        cur.execute(
-            f"""
-            SELECT
-                c.id AS company_id,
-                c.name AS company_name,
-                c.ticker,
-                COUNT(*) AS total_operations,
-                COALESCE(SUM(ABS(h.total_value)), 0) AS total_value
-            FROM holdings h
-            JOIN documents d ON d.id = h.document_id
-            JOIN companies c ON c.id = d.company_id
-            WHERE h.section = 'movimentacoes'
-              AND h.confidence != 'baixa'
-              {date_cond}
-              {group_cond}
-            GROUP BY c.id, c.name, c.ticker
-            ORDER BY total_operations DESC, total_value DESC
-            LIMIT %s
-            """,
-            [*date_params, *group_params, limit],
-        )
+        if _mv_exists(cur, "mv_rankings_most_active"):
+            cur.execute(
+                f"""
+                SELECT
+                    company_id,
+                    company_name,
+                    ticker,
+                    SUM(op_count) AS total_operations,
+                    SUM(total_value) AS total_value
+                FROM mv_rankings_most_active
+                WHERE TRUE
+                  {date_cond}
+                  {group_cond}
+                GROUP BY company_id, company_name, ticker
+                ORDER BY total_operations DESC, total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, *group_params, limit],
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT
+                    c.id AS company_id,
+                    c.name AS company_name,
+                    c.ticker,
+                    COUNT(*) AS total_operations,
+                    COALESCE(SUM(ABS(h.total_value)), 0) AS total_value
+                FROM holdings h
+                JOIN documents d ON d.id = h.document_id
+                JOIN companies c ON c.id = d.company_id
+                WHERE h.section = 'movimentacoes'
+                  AND h.confidence != 'baixa'
+                  {date_cond}
+                  {group_cond}
+                GROUP BY c.id, c.name, c.ticker
+                ORDER BY total_operations DESC, total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, *group_params, limit],
+            )
         rows = cur.fetchall()
 
     return {"data": [dict(r) for r in rows], "period": period}  # type: ignore[arg-type]
@@ -173,27 +276,47 @@ async def by_role(
     date_cond, date_params = _date_condition(since)
 
     with get_cursor() as cur:
-        cur.execute(
-            f"""
-            SELECT
-                h.insider_group,
-                COUNT(*) AS total_operations,
-                COALESCE(SUM(ABS(h.total_value)), 0) AS total_value,
-                COUNT(DISTINCT d.company_id) AS companies_count,
-                COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Compra%%' THEN 1 ELSE 0 END), 0) AS buy_count,
-                COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Venda%%' THEN 1 ELSE 0 END), 0) AS sell_count
-            FROM holdings h
-            JOIN documents d ON d.id = h.document_id
-            WHERE h.section = 'movimentacoes'
-              AND h.confidence != 'baixa'
-              AND h.insider_group IS NOT NULL
-              {date_cond}
-            GROUP BY h.insider_group
-            ORDER BY total_value DESC
-            LIMIT %s
-            """,
-            [*date_params, limit],
-        )
+        if _mv_exists(cur, "mv_rankings_by_role"):
+            cur.execute(
+                f"""
+                SELECT
+                    insider_group,
+                    SUM(op_count) AS total_operations,
+                    SUM(total_value) AS total_value,
+                    SUM(companies_count) AS companies_count,
+                    SUM(buy_count) AS buy_count,
+                    SUM(sell_count) AS sell_count
+                FROM mv_rankings_by_role
+                WHERE TRUE
+                  {date_cond}
+                GROUP BY insider_group
+                ORDER BY total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, limit],
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT
+                    h.insider_group,
+                    COUNT(*) AS total_operations,
+                    COALESCE(SUM(ABS(h.total_value)), 0) AS total_value,
+                    COUNT(DISTINCT d.company_id) AS companies_count,
+                    COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Compra%%' THEN 1 ELSE 0 END), 0) AS buy_count,
+                    COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Venda%%' THEN 1 ELSE 0 END), 0) AS sell_count
+                FROM holdings h
+                JOIN documents d ON d.id = h.document_id
+                WHERE h.section = 'movimentacoes'
+                  AND h.confidence != 'baixa'
+                  AND h.insider_group IS NOT NULL
+                  {date_cond}
+                GROUP BY h.insider_group
+                ORDER BY total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, limit],
+            )
         rows = cur.fetchall()
 
     return {"data": [dict(r) for r in rows], "period": period}  # type: ignore[arg-type]
@@ -212,29 +335,50 @@ async def by_broker(
     group_cond, group_params = _group_condition(validated_group)
 
     with get_cursor() as cur:
-        cur.execute(
-            f"""
-            SELECT
-                h.broker,
-                COUNT(*) AS total_operations,
-                COALESCE(SUM(ABS(h.total_value)), 0) AS total_value,
-                COUNT(DISTINCT d.company_id) AS companies_count,
-                COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Compra%%' THEN 1 ELSE 0 END), 0) AS buy_count,
-                COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Venda%%' THEN 1 ELSE 0 END), 0) AS sell_count
-            FROM holdings h
-            JOIN documents d ON d.id = h.document_id
-            WHERE h.section = 'movimentacoes'
-              AND h.confidence != 'baixa'
-              AND h.broker IS NOT NULL
-              AND h.broker != ''
-              {date_cond}
-              {group_cond}
-            GROUP BY h.broker
-            ORDER BY total_value DESC
-            LIMIT %s
-            """,
-            [*date_params, *group_params, limit],
-        )
+        if _mv_exists(cur, "mv_rankings_by_broker"):
+            cur.execute(
+                f"""
+                SELECT
+                    broker,
+                    SUM(op_count) AS total_operations,
+                    SUM(total_value) AS total_value,
+                    SUM(companies_count) AS companies_count,
+                    SUM(buy_count) AS buy_count,
+                    SUM(sell_count) AS sell_count
+                FROM mv_rankings_by_broker
+                WHERE TRUE
+                  {date_cond}
+                  {group_cond}
+                GROUP BY broker
+                ORDER BY total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, *group_params, limit],
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT
+                    h.broker,
+                    COUNT(*) AS total_operations,
+                    COALESCE(SUM(ABS(h.total_value)), 0) AS total_value,
+                    COUNT(DISTINCT d.company_id) AS companies_count,
+                    COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Compra%%' THEN 1 ELSE 0 END), 0) AS buy_count,
+                    COALESCE(SUM(CASE WHEN h.operation_type ILIKE 'Venda%%' THEN 1 ELSE 0 END), 0) AS sell_count
+                FROM holdings h
+                JOIN documents d ON d.id = h.document_id
+                WHERE h.section = 'movimentacoes'
+                  AND h.confidence != 'baixa'
+                  AND h.broker IS NOT NULL
+                  AND h.broker != ''
+                  {date_cond}
+                  {group_cond}
+                GROUP BY h.broker
+                ORDER BY total_value DESC
+                LIMIT %s
+                """,
+                [*date_params, *group_params, limit],
+            )
         rows = cur.fetchall()
 
     return {"data": [dict(r) for r in rows], "period": period}  # type: ignore[arg-type]

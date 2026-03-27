@@ -34,6 +34,7 @@ from pipeline.src.loader.supabase_loader import (
     create_sync_log,
     file_hash_exists,
     get_company_id,
+    refresh_materialized_views,
     update_sync_log,
     upsert_document,
     upsert_holdings,
@@ -265,6 +266,14 @@ def run_pipeline() -> None:
             except Exception:
                 logger.exception("Alert generation failed")
                 errors.append("[ALERTS] Alert generation failed")
+
+        # Refresh materialized views for rankings cache
+        if status == "success":
+            try:
+                refresh_materialized_views(settings.database_url)
+            except Exception:
+                logger.exception("Materialized view refresh failed")
+                errors.append("[MV_REFRESH] Materialized view refresh failed")
 
     except Exception as exc:
         status = "error"

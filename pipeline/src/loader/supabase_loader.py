@@ -751,3 +751,43 @@ def upsert_insider_positions(
         raise
     finally:
         conn.close()
+
+
+# Materialized view names used by rankings/dashboard
+_MV_NAMES = [
+    "mv_rankings_top_buyers",
+    "mv_rankings_top_sellers",
+    "mv_rankings_most_active",
+    "mv_rankings_by_role",
+    "mv_rankings_by_broker",
+    "mv_dashboard_summary",
+]
+
+
+def refresh_materialized_views(database_url: str) -> list[str]:
+    """Refresh all ranking materialized views.
+
+    Returns list of view names that were refreshed.
+    """
+    conn = psycopg2.connect(database_url)
+    refreshed: list[str] = []
+    try:
+        cur = conn.cursor()
+        for mv_name in _MV_NAMES:
+            cur.execute(
+                "SELECT EXISTS(SELECT 1 FROM pg_matviews WHERE matviewname = %s)",
+                [mv_name],
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                cur.execute(f"REFRESH MATERIALIZED VIEW {mv_name}")  # noqa: S608
+                refreshed.append(mv_name)
+        conn.commit()
+        logger.info("Refreshed %d materialized views: %s", len(refreshed), refreshed)
+        return refreshed
+    except Exception:
+        conn.rollback()
+        logger.exception("Error refreshing materialized views")
+        raise
+    finally:
+        conn.close()

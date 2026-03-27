@@ -11,25 +11,53 @@ from api.app.routers.holdings import _validate_insider_group
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
+def _mv_summary_exists(cur: Any) -> bool:
+    """Check if mv_dashboard_summary materialized view exists."""
+    cur.execute(
+        "SELECT EXISTS(SELECT 1 FROM pg_matviews WHERE matviewname = 'mv_dashboard_summary')"
+    )
+    row = cur.fetchone()
+    return bool(row["exists"]) if row else False  # type: ignore[index]
+
+
 @router.get("/summary")
 async def dashboard_summary() -> dict[str, Any]:
     """Get dashboard summary statistics."""
     with get_cursor() as cur:
-        # Total companies
-        cur.execute("SELECT COUNT(*) AS cnt FROM companies")
-        total_companies = cur.fetchone()["cnt"]  # type: ignore[index]
+        # Try materialized view first
+        if _mv_summary_exists(cur):
+            cur.execute("SELECT * FROM mv_dashboard_summary")
+            mv_row = cur.fetchone()
+            if mv_row:
+                total_companies = mv_row["total_companies"]  # type: ignore[index]
+                total_documents = mv_row["total_documents"]  # type: ignore[index]
+                total_movements = mv_row["total_movements"]  # type: ignore[index]
+                date_min = mv_row["date_min"]  # type: ignore[index]
+                date_max = mv_row["date_max"]  # type: ignore[index]
+            else:
+                total_companies = total_documents = total_movements = 0
+                date_min = date_max = None
+        else:
+            # Fallback to direct queries
+            cur.execute("SELECT COUNT(*) AS cnt FROM companies")
+            total_companies = cur.fetchone()["cnt"]  # type: ignore[index]
 
-        # Total documents
-        cur.execute("SELECT COUNT(*) AS cnt FROM documents")
-        total_documents = cur.fetchone()["cnt"]  # type: ignore[index]
+            cur.execute("SELECT COUNT(*) AS cnt FROM documents")
+            total_documents = cur.fetchone()["cnt"]  # type: ignore[index]
 
-        # Total movements (section = movimentacoes, confidence != baixa)
-        cur.execute(
-            "SELECT COUNT(*) AS cnt FROM holdings WHERE section = 'movimentacoes' AND confidence != 'baixa'"
-        )
-        total_movements = cur.fetchone()["cnt"]  # type: ignore[index]
+            cur.execute(
+                "SELECT COUNT(*) AS cnt FROM holdings WHERE section = 'movimentacoes' AND confidence != 'baixa'"
+            )
+            total_movements = cur.fetchone()["cnt"]  # type: ignore[index]
 
-        # Last sync
+            cur.execute(
+                "SELECT MIN(reference_date) AS date_min, MAX(reference_date) AS date_max FROM documents"
+            )
+            range_row = cur.fetchone()
+            date_min = range_row["date_min"] if range_row else None  # type: ignore[index]
+            date_max = range_row["date_max"] if range_row else None  # type: ignore[index]
+
+        # Last sync (always live — it's a single row lookup with index)
         cur.execute(
             "SELECT id, started_at, finished_at, status, documents_found, documents_processed, documents_failed "
             "FROM sync_log ORDER BY started_at DESC LIMIT 1"
@@ -37,14 +65,9 @@ async def dashboard_summary() -> dict[str, Any]:
         last_sync_row = cur.fetchone()
         last_sync = dict(last_sync_row) if last_sync_row else None  # type: ignore[arg-type]
 
-        # Data range (min/max reference_date)
-        cur.execute(
-            "SELECT MIN(reference_date) AS date_min, MAX(reference_date) AS date_max FROM documents"
-        )
-        range_row = cur.fetchone()
         data_range = {
-            "from": range_row["date_min"].isoformat() if range_row and range_row["date_min"] else None,  # type: ignore[index]
-            "to": range_row["date_max"].isoformat() if range_row and range_row["date_max"] else None,  # type: ignore[index]
+            "from": date_min.isoformat() if date_min else None,
+            "to": date_max.isoformat() if date_max else None,
         }
 
     return {
