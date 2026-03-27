@@ -1,9 +1,11 @@
 """Company endpoints."""
 
+import io
 from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from api.app.database import get_cursor
 from api.app.routers.holdings import _validate_insider_group
@@ -552,3 +554,198 @@ async def get_position_history(
         rows = cur.fetchall()
 
     return {"data": [dict(r) for r in rows]}  # type: ignore[arg-type]
+
+
+@router.get("/{company_id}/report")
+async def generate_company_report(company_id: int) -> StreamingResponse:
+    """Generate a PDF report for a company with insider movements summary."""
+    from reportlab.lib import colors  # type: ignore[import-untyped]
+    from reportlab.lib.pagesizes import A4  # type: ignore[import-untyped]
+    from reportlab.lib.styles import getSampleStyleSheet  # type: ignore[import-untyped]
+    from reportlab.lib.units import mm  # type: ignore[import-untyped]
+    from reportlab.platypus import SimpleDocTemplate, Table as RLTable, TableStyle, Paragraph, Spacer  # type: ignore[import-untyped]
+
+    with get_cursor() as cur:
+        # Company info
+        cur.execute("SELECT * FROM companies WHERE id = %s", (company_id,))
+        company = cur.fetchone()
+        if not company:
+            raise _not_found()
+        company_dict: dict[str, Any] = dict(company)  # type: ignore[arg-type]
+
+        # Movement summary stats
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) AS total_movements,
+                COUNT(*) FILTER (WHERE h.operation_type IN ('Compra', 'Aquisição')) AS buys,
+                COUNT(*) FILTER (WHERE h.operation_type IN ('Venda', 'Alienação')) AS sells,
+                COALESCE(SUM(ABS(h.total_value)) FILTER (WHERE h.operation_type IN ('Compra', 'Aquisição')), 0) AS buy_value,
+                COALESCE(SUM(ABS(h.total_value)) FILTER (WHERE h.operation_type IN ('Venda', 'Alienação')), 0) AS sell_value,
+                MIN(h.operation_date) AS first_movement,
+                MAX(h.operation_date) AS last_movement
+            FROM holdings h
+            JOIN documents d ON d.id = h.document_id
+            WHERE d.company_id = %s AND h.section = 'movimentacoes' AND h.confidence != 'baixa'
+            """,
+            (company_id,),
+        )
+        stats_row = cur.fetchone()
+        stats: dict[str, Any] = dict(stats_row) if stats_row else {}  # type: ignore[arg-type]
+
+        # Top insiders by total value
+        cur.execute(
+            """
+            SELECT h.insider_name, COUNT(*) AS operations,
+                   COALESCE(SUM(ABS(h.total_value)), 0) AS total_value
+            FROM holdings h
+            JOIN documents d ON d.id = h.document_id
+            WHERE d.company_id = %s AND h.section = 'movimentacoes'
+              AND h.confidence != 'baixa' AND h.insider_name IS NOT NULL
+            GROUP BY h.insider_name
+            ORDER BY total_value DESC
+            LIMIT 10
+            """,
+            (company_id,),
+        )
+        top_insiders = [dict(r) for r in cur.fetchall()]  # type: ignore[arg-type]
+
+        # Recent movements
+        cur.execute(
+            """
+            SELECT h.operation_date, h.asset_type, h.operation_type,
+                   h.quantity, h.total_value, h.insider_name, h.insider_group
+            FROM holdings h
+            JOIN documents d ON d.id = h.document_id
+            WHERE d.company_id = %s AND h.section = 'movimentacoes'
+              AND h.confidence != 'baixa'
+            ORDER BY h.operation_date DESC NULLS LAST, h.id DESC
+            LIMIT 20
+            """,
+            (company_id,),
+        )
+        recent = [dict(r) for r in cur.fetchall()]  # type: ignore[arg-type]
+
+        # Alert count
+        cur.execute(
+            "SELECT COUNT(*) AS cnt FROM alerts WHERE company_id = %s",
+            (company_id,),
+        )
+        alert_count = cur.fetchone()["cnt"]  # type: ignore[index]
+
+    # Build PDF
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=15 * mm, rightMargin=15 * mm,
+        topMargin=15 * mm, bottomMargin=15 * mm,
+    )
+    styles = getSampleStyleSheet()
+    elements: list[Any] = []
+
+    # Title
+    elements.append(Paragraph(f"Relatório — {company_dict.get('name', '')}", styles["Title"]))
+    elements.append(Spacer(1, 4 * mm))
+
+    # Company info
+    ticker = company_dict.get("ticker") or "—"
+    cnpj = company_dict.get("cnpj") or "—"
+    sector = company_dict.get("sector") or "—"
+    elements.append(Paragraph(
+        f"<b>Ticker:</b> {ticker} &nbsp;&nbsp; <b>CNPJ:</b> {cnpj} &nbsp;&nbsp; <b>Setor:</b> {sector}",
+        styles["Normal"],
+    ))
+    elements.append(Spacer(1, 6 * mm))
+
+    # Summary section
+    elements.append(Paragraph("Resumo de Movimentações", styles["Heading2"]))
+
+    def _fmt_currency(val: Any) -> str:
+        if val is None:
+            return "—"
+        return f"R$ {float(val):,.2f}"
+
+    summary_data = [
+        ["Total de movimentações", str(stats.get("total_movements", 0))],
+        ["Compras", str(stats.get("buys", 0))],
+        ["Vendas", str(stats.get("sells", 0))],
+        ["Valor de compras", _fmt_currency(stats.get("buy_value"))],
+        ["Valor de vendas", _fmt_currency(stats.get("sell_value"))],
+        ["Primeira movimentação", str(stats.get("first_movement") or "—")],
+        ["Última movimentação", str(stats.get("last_movement") or "—")],
+        ["Alertas", str(alert_count)],
+    ]
+    t = RLTable(summary_data, colWidths=[120 * mm, 50 * mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.Color(0.94, 0.94, 0.94)),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.Color(0.8, 0.8, 0.8)),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(t)
+    elements.append(Spacer(1, 8 * mm))
+
+    # Top insiders
+    if top_insiders:
+        elements.append(Paragraph("Principais Insiders (por valor)", styles["Heading2"]))
+        insider_table_data: list[list[str]] = [["Insider", "Operações", "Valor Total"]]
+        for ins in top_insiders:
+            insider_table_data.append([
+                str(ins.get("insider_name") or "—"),
+                str(ins.get("operations", 0)),
+                _fmt_currency(ins.get("total_value")),
+            ])
+        t2 = RLTable(insider_table_data, colWidths=[90 * mm, 30 * mm, 50 * mm])
+        t2.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.Color(0.12, 0.31, 0.47)),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.Color(0.8, 0.8, 0.8)),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.Color(0.96, 0.96, 0.96)]),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        elements.append(t2)
+        elements.append(Spacer(1, 8 * mm))
+
+    # Recent movements table
+    if recent:
+        elements.append(Paragraph("Movimentações Recentes", styles["Heading2"]))
+        mov_data: list[list[str]] = [["Data", "Ativo", "Operação", "Qtd", "Valor", "Insider", "Grupo"]]
+        for m in recent:
+            mov_data.append([
+                str(m.get("operation_date") or "—"),
+                str(m.get("asset_type") or "—"),
+                str(m.get("operation_type") or "—"),
+                f"{float(m['quantity']):,.0f}" if m.get("quantity") else "—",
+                _fmt_currency(m.get("total_value")),
+                str(m.get("insider_name") or "—"),
+                str(m.get("insider_group") or "—"),
+            ])
+        col_w = [22 * mm, 22 * mm, 20 * mm, 22 * mm, 25 * mm, 40 * mm, 28 * mm]
+        t3 = RLTable(mov_data, colWidths=col_w)
+        t3.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.Color(0.12, 0.31, 0.47)),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.Color(0.8, 0.8, 0.8)),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.Color(0.96, 0.96, 0.96)]),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        elements.append(t3)
+
+    doc.build(elements)
+    buf.seek(0)
+
+    safe_name = (company_dict.get("ticker") or company_dict.get("name") or "company").replace(" ", "_")
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=relatorio_{safe_name}.pdf"},
+    )

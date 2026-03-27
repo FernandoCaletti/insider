@@ -69,6 +69,12 @@ function formatCNPJ(cnpj: string | null): string {
 }
 
 function CompanyHeader({ company }: { company: CompanyDetail }) {
+  const handleDownloadPDF = () => {
+    const baseUrl =
+      process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+    window.open(`${baseUrl}/companies/${company.id}/report`, "_blank");
+  };
+
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-3">
@@ -76,6 +82,15 @@ function CompanyHeader({ company }: { company: CompanyDetail }) {
         <Badge variant={company.is_active ? "success" : "secondary"}>
           {company.is_active ? "Ativa" : "Inativa"}
         </Badge>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleDownloadPDF}
+          className="ml-auto"
+        >
+          <FileText className="mr-2 h-4 w-4" />
+          Relatório PDF
+        </Button>
       </div>
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
         <span>
@@ -191,7 +206,7 @@ function MovementsTab({ companyId }: { companyId: number }) {
     fetchMovements();
   }, [fetchMovements]);
 
-  const handleExportCSV = () => {
+  const handleExport = (format: "csv" | "xlsx") => {
     const baseUrl =
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
     const params = new URLSearchParams();
@@ -202,7 +217,9 @@ function MovementsTab({ companyId }: { companyId: number }) {
     if (insiderGroup) params.set("insider_group", insiderGroup);
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo) params.set("date_to", dateTo);
-    window.open(`${baseUrl}/holdings/export?${params.toString()}`, "_blank");
+    const endpoint =
+      format === "xlsx" ? "/holdings/export/xlsx" : "/holdings/export";
+    window.open(`${baseUrl}${endpoint}?${params.toString()}`, "_blank");
   };
 
   const totalPages = Math.ceil(total / perPage);
@@ -288,11 +305,19 @@ function MovementsTab({ companyId }: { companyId: number }) {
 
         <Button
           variant="outline"
-          onClick={handleExportCSV}
+          onClick={() => handleExport("csv")}
           className="whitespace-nowrap"
         >
           <Download className="mr-2 h-4 w-4" />
-          Exportar CSV
+          CSV
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => handleExport("xlsx")}
+          className="whitespace-nowrap"
+        >
+          <Download className="mr-2 h-4 w-4" />
+          XLSX
         </Button>
       </div>
 

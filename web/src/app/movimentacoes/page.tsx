@@ -461,12 +461,12 @@ function MovimentaçõesContent() {
     });
   };
 
-  // CSV export
-  const handleExport = () => {
+  // Export handler for CSV and XLSX
+  const handleExport = (format: "csv" | "xlsx") => {
     if (total > 10000) {
       if (
         !confirm(
-          "Existem mais de 10.000 registros. O arquivo exportado contera apenas os 10.000 primeiros. Deseja continuar?"
+          "Existem mais de 10.000 registros. O arquivo exportado conterá apenas os 10.000 primeiros. Deseja continuar?"
         )
       ) {
         return;
@@ -492,7 +492,9 @@ function MovimentaçõesContent() {
       sorting.length > 0 ? (sorting[0].desc ? "desc" : "asc") : "desc";
     sp.set("sort_by", sortField);
     sp.set("sort_order", sortOrder);
-    window.open(`${baseUrl}/holdings/export?${sp.toString()}`, "_blank");
+    const endpoint =
+      format === "xlsx" ? "/holdings/export/xlsx" : "/holdings/export";
+    window.open(`${baseUrl}${endpoint}?${sp.toString()}`, "_blank");
   };
 
   // TanStack Table columns
@@ -807,14 +809,16 @@ function MovimentaçõesContent() {
               Limpar filtros
             </Button>
           )}
-          <Button
-            variant="outline"
-            onClick={handleExport}
-            className="ml-auto"
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Exportar CSV
-          </Button>
+          <div className="ml-auto flex gap-2">
+            <Button variant="outline" onClick={() => handleExport("csv")}>
+              <Download className="mr-2 h-4 w-4" />
+              CSV
+            </Button>
+            <Button variant="outline" onClick={() => handleExport("xlsx")}>
+              <Download className="mr-2 h-4 w-4" />
+              XLSX
+            </Button>
+          </div>
         </div>
       </div>
 

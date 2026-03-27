@@ -10,6 +10,23 @@ from fastapi.responses import StreamingResponse
 
 from api.app.database import get_cursor
 
+_EXPORT_COLUMNS = [
+    ("empresa", "Empresa"),
+    ("ticker", "Ticker"),
+    ("data", "Data"),
+    ("tipo_ativo", "Tipo de Ativo"),
+    ("descricao", "Descrição"),
+    ("operacao", "Operação"),
+    ("quantidade", "Quantidade"),
+    ("preco_unitario", "Preço Unitário"),
+    ("valor_total", "Valor Total"),
+    ("corretora", "Corretora"),
+    ("nome_insider", "Nome do Insider"),
+    ("secao", "Seção"),
+    ("confianca", "Confiança"),
+    ("data_referencia", "Data de Referência"),
+]
+
 router = APIRouter(prefix="/holdings", tags=["holdings"])
 
 _VALID_INSIDER_GROUPS = [
@@ -251,4 +268,140 @@ async def export_holdings(
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=holdings_export.csv"},
+    )
+
+
+def _fetch_export_rows(
+    company_id: int | None,
+    asset_type: str | None,
+    operation_type: str | None,
+    date_from: date | None,
+    date_to: date | None,
+    value_min: float | None,
+    value_max: float | None,
+    section: str | None,
+    insider_group: str | None,
+    sort_by: str,
+    sort_order: str,
+) -> list[Any]:
+    """Shared helper to fetch export rows for CSV/XLSX."""
+    validated_group = _validate_insider_group(insider_group)
+    where, params, _ = _build_holdings_query(
+        company_id, asset_type, operation_type, date_from, date_to, value_min, value_max, section,
+        insider_group=validated_group,
+    )
+    sort_col = _SORT_COLUMNS.get(sort_by, "h.operation_date")
+    order = "ASC" if sort_order == "asc" else "DESC"
+    max_records = 10000
+
+    with get_cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                c.name AS empresa,
+                c.ticker,
+                h.operation_date AS data,
+                h.asset_type AS tipo_ativo,
+                h.asset_description AS descricao,
+                h.operation_type AS operacao,
+                h.quantity AS quantidade,
+                h.unit_price AS preco_unitario,
+                h.total_value AS valor_total,
+                h.broker AS corretora,
+                h.insider_name AS nome_insider,
+                h.section AS secao,
+                h.confidence AS confianca,
+                d.reference_date AS data_referencia
+            FROM holdings h
+            JOIN documents d ON d.id = h.document_id
+            JOIN companies c ON c.id = d.company_id
+            {where}
+            ORDER BY {sort_col} {order}, h.id
+            LIMIT %s
+            """,
+            [*params, max_records],
+        )
+        return cur.fetchall()
+
+
+@router.get("/export/xlsx")
+async def export_holdings_xlsx(
+    company_id: int | None = None,
+    asset_type: str | None = None,
+    operation_type: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    value_min: float | None = None,
+    value_max: float | None = None,
+    section: str | None = None,
+    insider_group: str | None = None,
+    sort_by: str = Query("operation_date", pattern="^(operation_date|total_value|quantity|asset_type|company_name|operation_type|unit_price|broker|company_ticker)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
+) -> StreamingResponse:
+    """Export holdings as formatted XLSX (max 10000 records)."""
+    from openpyxl import Workbook  # type: ignore[import-untyped]
+    from openpyxl.styles import Font, PatternFill, Alignment, numbers  # type: ignore[import-untyped]
+
+    rows = _fetch_export_rows(
+        company_id, asset_type, operation_type, date_from, date_to,
+        value_min, value_max, section, insider_group, sort_by, sort_order,
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Movimentações"  # type: ignore[union-attr]
+
+    # Header styling
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center")
+
+    # Write header row
+    headers = [label for _, label in _EXPORT_COLUMNS]
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=header)  # type: ignore[union-attr]
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+
+    # Write data rows
+    currency_cols = {8, 9}  # preco_unitario, valor_total (1-indexed)
+    quantity_col = 7
+    db_keys = [key for key, _ in _EXPORT_COLUMNS]
+
+    for row_idx, row in enumerate(rows, 2):
+        row_dict: dict[str, Any] = dict(row)  # type: ignore[arg-type]
+        for col_idx, key in enumerate(db_keys, 1):
+            val = row_dict.get(key)
+            cell = ws.cell(row=row_idx, column=col_idx)  # type: ignore[union-attr]
+            if val is not None and col_idx in currency_cols:
+                cell.value = float(val)  # type: ignore[assignment]
+                cell.number_format = '#,##0.00'
+            elif val is not None and col_idx == quantity_col:
+                cell.value = float(val) if val else 0  # type: ignore[assignment]
+                cell.number_format = '#,##0'
+            elif hasattr(val, 'isoformat'):
+                cell.value = val  # type: ignore[assignment]
+                cell.number_format = numbers.FORMAT_DATE_DATETIME
+            else:
+                cell.value = str(val) if val is not None else ""  # type: ignore[assignment]
+
+    # Auto-fit column widths
+    for col_idx in range(1, len(headers) + 1):
+        max_len = len(str(ws.cell(row=1, column=col_idx).value or ""))  # type: ignore[union-attr]
+        for row_idx in range(2, min(len(rows) + 2, 102)):  # Sample first 100 rows
+            cell_val = ws.cell(row=row_idx, column=col_idx).value  # type: ignore[union-attr]
+            max_len = max(max_len, len(str(cell_val or "")))
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = min(max_len + 3, 40)  # type: ignore[union-attr]
+
+    # Freeze header row
+    ws.freeze_panes = "A2"  # type: ignore[union-attr]
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=holdings_export.xlsx"},
     )
