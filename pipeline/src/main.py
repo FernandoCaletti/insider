@@ -27,6 +27,7 @@ from pipeline.src.collector.downloader import (
     download_pdf,
     warmup_session,
 )
+from pipeline.src.alerts.alert_generator import generate_alerts
 from pipeline.src.config import get_settings
 from pipeline.src.extractor.pdf_parser import extract_pdf
 from pipeline.src.loader.supabase_loader import (
@@ -84,10 +85,10 @@ def _process_document(
     doc: DocumentRecord,
     database_url: str,
     session: Any,
-) -> bool:
+) -> tuple[bool, int | None]:
     """Download, extract, and load a single document.
 
-    Returns True on success, False on failure.
+    Returns (success, doc_id). doc_id is set only for newly processed documents.
     """
     logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ def _process_document(
         logger.warning(
             "Company not found for cvm_code=%s, skipping document", doc.cvm_code
         )
-        return False
+        return False, None
 
     # Download PDF
     tmp_path: str | None = None
@@ -105,20 +106,20 @@ def _process_document(
         tmp_path = download_pdf(session, doc.document_url)
     except Exception:
         logger.exception("Failed to download PDF: %s", doc.document_url)
-        return False
+        return False, None
 
     try:
         # Hash for duplicate control
         file_hash = sha256_hash(tmp_path)
         if file_hash_exists(database_url, file_hash):
             logger.info("Duplicate hash %s, skipping", file_hash[:12])
-            return True  # Not a failure
+            return True, None  # Not a failure, but not new
 
         # Extract
         result = extract_pdf(tmp_path)
         if result.is_scanned:
             logger.warning("Scanned PDF skipped: %s", doc.document_url)
-            return False
+            return False, None
 
         # Parse reference date components
         ref_date = doc.reference_date  # YYYY-MM-DD
@@ -143,7 +144,7 @@ def _process_document(
             is_scanned=result.is_scanned,
         )
         if doc_id is None:
-            return False
+            return False, None
 
         # Upsert holdings
         all_holdings = result.all_holdings
@@ -156,11 +157,11 @@ def _process_document(
             ref_date,
             len(all_holdings),
         )
-        return True
+        return True, doc_id
 
     except Exception:
         logger.exception("Error processing document: %s", doc.document_url)
-        return False
+        return False, None
     finally:
         if tmp_path:
             cleanup_file(tmp_path)
@@ -184,6 +185,7 @@ def run_pipeline() -> None:
     sync_id = create_sync_log(settings.database_url)
 
     errors: list[str] = []
+    new_doc_ids: list[int] = []
     documents_found = 0
     documents_processed = 0
     documents_failed = 0
@@ -222,9 +224,13 @@ def run_pipeline() -> None:
                 time.sleep(DOWNLOAD_DELAY)
 
             try:
-                success = _process_document(doc, settings.database_url, session)
+                success, doc_id = _process_document(
+                    doc, settings.database_url, session
+                )
                 if success:
                     documents_processed += 1
+                    if doc_id is not None:
+                        new_doc_ids.append(doc_id)
                 else:
                     documents_failed += 1
                     errors.append(f"Failed: cvm={doc.cvm_code} ref={doc.reference_date}")
@@ -251,6 +257,14 @@ def run_pipeline() -> None:
             documents_failed,
             status,
         )
+
+        # Generate alerts for newly imported documents (only on success)
+        if status == "success" and new_doc_ids:
+            try:
+                generate_alerts(settings.database_url, new_doc_ids)
+            except Exception:
+                logger.exception("Alert generation failed")
+                errors.append("[ALERTS] Alert generation failed")
 
     except Exception as exc:
         status = "error"
