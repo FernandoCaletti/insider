@@ -416,3 +416,172 @@ def fetch_and_parse_material_facts(
     """
     csv_content = fetch_material_facts_csv(year, base_url)
     return parse_material_facts_csv(csv_content)
+
+
+# ---------------------------------------------------------------------------
+# Financial Statements CSV (DFP annual / ITR quarterly)
+# ---------------------------------------------------------------------------
+
+# Statement types we extract from CVM DFP/ITR ZIPs.
+# Each corresponds to a CSV file inside the ZIP.
+FINANCIAL_STATEMENT_TYPES = ["BPA", "BPP", "DRE", "DFC_MI"]
+
+
+@dataclass
+class FinancialStatementRecord:
+    """A CVM financial statement line item."""
+
+    cvm_code: str
+    reference_date: str  # YYYY-MM-DD
+    statement_type: str  # BPA, BPP, DRE, DFC_MI
+    account_code: str
+    account_name: str
+    value: str  # raw string, converted to Decimal downstream
+    currency: str
+    version: str
+
+
+def fetch_financial_zip(
+    year: int,
+    report_type: str = "DFP",
+    base_url: str = "https://dados.cvm.gov.br",
+) -> bytes:
+    """Download annual CVM financial statement ZIP.
+
+    Args:
+        year: The year to download.
+        report_type: "DFP" (annual) or "ITR" (quarterly).
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        Raw ZIP bytes.
+    """
+    rt = report_type.lower()
+    RT = report_type.upper()
+    url = f"{base_url}/dados/CIA_ABERTA/DOC/{RT}/DADOS/{rt}_cia_aberta_con_{year}.zip"
+    logger.info("Downloading financial ZIP from %s", url)
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "InsiderTrack/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=120) as response:
+        raw_bytes: bytes = response.read()
+
+    logger.info("Downloaded financial ZIP (%d bytes)", len(raw_bytes))
+    return raw_bytes
+
+
+def _parse_financial_csv(
+    csv_content: str,
+    statement_type: str,
+) -> list[FinancialStatementRecord]:
+    """Parse a single financial statement CSV into records."""
+    reader = csv.DictReader(io.StringIO(csv_content), delimiter=";")
+
+    records: list[FinancialStatementRecord] = []
+    for row in reader:
+        cvm_code = _get_field(row, "CD_CVM", "Codigo_CVM")
+        dt_refer = _get_field(row, "DT_REFER", "Data_Referencia")
+        cd_conta = _get_field(row, "CD_CONTA", "Codigo_Conta")
+        ds_conta = _get_field(row, "DS_CONTA", "Descricao_Conta")
+        vl_conta = _get_field(row, "VL_CONTA", "Valor_Conta")
+        moeda = _get_field(row, "MOEDA_ORIG", "Moeda") or "BRL"
+        versao = _get_field(row, "VERSAO", "Versao")
+
+        if not cvm_code or not cd_conta or not dt_refer:
+            continue
+
+        records.append(
+            FinancialStatementRecord(
+                cvm_code=cvm_code,
+                reference_date=dt_refer,
+                statement_type=statement_type,
+                account_code=cd_conta,
+                account_name=ds_conta,
+                value=vl_conta,
+                currency=moeda,
+                version=versao,
+            )
+        )
+
+    return records
+
+
+def parse_financial_zip(
+    zip_bytes: bytes,
+    year: int,
+    report_type: str = "DFP",
+    statement_types: list[str] | None = None,
+) -> list[FinancialStatementRecord]:
+    """Extract and parse financial statement CSVs from a ZIP.
+
+    Args:
+        zip_bytes: Raw ZIP content.
+        year: Year (used to locate CSV filenames).
+        report_type: "DFP" or "ITR".
+        statement_types: Which statement types to extract.
+            Defaults to FINANCIAL_STATEMENT_TYPES.
+
+    Returns:
+        Combined list of all financial statement records.
+    """
+    if statement_types is None:
+        statement_types = FINANCIAL_STATEMENT_TYPES
+
+    rt = report_type.lower()
+    all_records: list[FinancialStatementRecord] = []
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = zf.namelist()
+        for st in statement_types:
+            csv_filename = f"{rt}_cia_aberta_con_{st}_{year}.csv"
+            # Try case-insensitive match
+            match = None
+            for n in names:
+                if n.lower() == csv_filename.lower():
+                    match = n
+                    break
+            if match is None:
+                logger.warning("CSV %s not found in ZIP, skipping", csv_filename)
+                continue
+
+            raw_csv_bytes = zf.read(match)
+            content = raw_csv_bytes.decode("iso-8859-1")
+            records = _parse_financial_csv(content, st)
+            logger.info(
+                "Parsed %d records from %s", len(records), csv_filename
+            )
+            all_records.extend(records)
+
+    logger.info(
+        "Total financial statement records from %s %d: %d",
+        report_type,
+        year,
+        len(all_records),
+    )
+    return all_records
+
+
+def fetch_and_parse_financial_statements(
+    year: int,
+    report_type: str = "DFP",
+    base_url: str = "https://dados.cvm.gov.br",
+    statement_types: list[str] | None = None,
+) -> list[FinancialStatementRecord]:
+    """Fetch and parse CVM financial statements for a given year.
+
+    Downloads the DFP or ITR ZIP, extracts statement CSVs, and parses
+    them into FinancialStatementRecord objects.
+
+    Args:
+        year: The year to fetch.
+        report_type: "DFP" (annual) or "ITR" (quarterly).
+        base_url: Base URL for CVM data portal.
+        statement_types: Which statement types to extract.
+
+    Returns:
+        List of financial statement records.
+    """
+    zip_bytes = fetch_financial_zip(year, report_type, base_url)
+    return parse_financial_zip(zip_bytes, year, report_type, statement_types)

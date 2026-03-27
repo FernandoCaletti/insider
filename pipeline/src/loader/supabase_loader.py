@@ -9,7 +9,11 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
-from pipeline.src.collector.cvm_client import CompanyRecord, MaterialFactRecord
+from pipeline.src.collector.cvm_client import (
+    CompanyRecord,
+    FinancialStatementRecord,
+    MaterialFactRecord,
+)
 from pipeline.src.extractor.pdf_parser import HoldingRecord
 
 logger = logging.getLogger(__name__)
@@ -440,6 +444,98 @@ def upsert_material_facts(
     except Exception:
         conn.rollback()
         logger.exception("Error upserting material facts")
+        raise
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Financial statements upsert
+# ---------------------------------------------------------------------------
+
+
+def upsert_financial_statements(
+    database_url: str,
+    records: list[FinancialStatementRecord],
+    company_map: dict[str, int],
+    batch_size: int = 100,
+) -> int:
+    """Batch upsert financial statement records.
+
+    Uses ON CONFLICT (company_id, reference_date, statement_type, account_code)
+    for idempotent imports. Skips records whose cvm_code is not in company_map.
+
+    Args:
+        database_url: PostgreSQL connection string.
+        records: List of FinancialStatementRecord from CVM CSV.
+        company_map: Mapping of cvm_code -> company_id.
+        batch_size: Number of records per batch.
+
+    Returns:
+        Number of records upserted.
+    """
+    if not records:
+        return 0
+
+    upsert_sql = """
+        INSERT INTO financial_statements
+            (company_id, reference_date, statement_type, account_code,
+             account_name, value, currency)
+        VALUES
+            (%(company_id)s, %(reference_date)s, %(statement_type)s,
+             %(account_code)s, %(account_name)s, %(value)s, %(currency)s)
+        ON CONFLICT (company_id, reference_date, statement_type, account_code)
+        DO UPDATE SET
+            account_name = EXCLUDED.account_name,
+            value = EXCLUDED.value,
+            currency = EXCLUDED.currency
+    """
+
+    conn = psycopg2.connect(database_url)
+    try:
+        total_upserted = 0
+        skipped = 0
+        with conn.cursor() as cur:
+            for i in range(0, len(records), batch_size):
+                batch = records[i : i + batch_size]
+                params: list[dict[str, Any]] = []
+                for r in batch:
+                    company_id = company_map.get(r.cvm_code)
+                    if company_id is None:
+                        skipped += 1
+                        continue
+                    # Convert value string to float or None
+                    val: float | None = None
+                    if r.value:
+                        try:
+                            val = float(r.value.replace(",", "."))
+                        except ValueError:
+                            val = None
+                    params.append(
+                        {
+                            "company_id": company_id,
+                            "reference_date": r.reference_date or None,
+                            "statement_type": r.statement_type,
+                            "account_code": r.account_code,
+                            "account_name": r.account_name or None,
+                            "value": val,
+                            "currency": r.currency or "BRL",
+                        }
+                    )
+                if params:
+                    psycopg2.extras.execute_batch(cur, upsert_sql, params)
+                    total_upserted += len(params)
+
+        conn.commit()
+        logger.info(
+            "Upserted %d financial statements (%d skipped - unknown company)",
+            total_upserted,
+            skipped,
+        )
+        return total_upserted
+    except Exception:
+        conn.rollback()
+        logger.exception("Error upserting financial statements")
         raise
     finally:
         conn.close()
