@@ -13,6 +13,7 @@ from api.app.routers import (
     documents,
     financial_statements,
     holdings,
+    insiders,
     material_facts,
     rankings,
     sync,
@@ -43,6 +44,7 @@ app.include_router(dividends.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(financial_statements.router, prefix="/api")
 app.include_router(holdings.router, prefix="/api")
+app.include_router(insiders.router, prefix="/api")
 app.include_router(material_facts.router, prefix="/api")
 app.include_router(rankings.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")

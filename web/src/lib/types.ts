@@ -295,6 +295,60 @@ export interface DividendsSummary {
   by_type: { dividend_type: string; count: number; total_value: number }[];
 }
 
+// Insider types
+export interface InsiderListItem {
+  insider_name: string;
+  total_operations: number;
+  total_value: number;
+  companies_count: number;
+  insider_group: string | null;
+  first_operation: string | null;
+  last_operation: string | null;
+  buy_count: number;
+  sell_count: number;
+}
+
+export interface InsiderCompany {
+  company_id: number;
+  company_name: string;
+  company_ticker: string | null;
+  operations: number;
+  total_value: number;
+}
+
+export interface InsiderSummary {
+  insider_name: string;
+  total_operations: number;
+  total_value: number;
+  companies_count: number;
+  insider_group: string | null;
+  first_operation: string | null;
+  last_operation: string | null;
+  buy_count: number;
+  sell_count: number;
+  buy_value: number;
+  sell_value: number;
+  companies: InsiderCompany[];
+  alert_count: number;
+}
+
+export interface InsiderPosition {
+  id: number;
+  company_id: number;
+  insider_name: string;
+  insider_group: string | null;
+  cpf_cnpj: string | null;
+  reference_date: string;
+  asset_type: string | null;
+  asset_description: string | null;
+  quantity: number | null;
+  total_value: number | null;
+  source_url: string | null;
+  created_at: string;
+  company_name?: string;
+  company_ticker?: string | null;
+}
+
 export interface TopCorrelatedCompany {
   company_id: number;
   company_name: string;

@@ -10,6 +10,7 @@ import {
   Trophy,
   GitCompareArrows,
   Bell,
+  UserSearch,
 } from "lucide-react";
 
 const navigation = [
@@ -18,6 +19,7 @@ const navigation = [
   { name: "Movimentações", href: "/movimentacoes", icon: ArrowLeftRight },
   { name: "Rankings", href: "/rankings", icon: Trophy },
   { name: "Correlações", href: "/correlacoes", icon: GitCompareArrows },
+  { name: "Insiders", href: "/insiders", icon: UserSearch },
   { name: "Alertas", href: "/alertas", icon: Bell },
 ];
 
