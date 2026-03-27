@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Download, FileText, ExternalLink } from "lucide-react";
+import { Download, FileText, ExternalLink, DollarSign } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -35,6 +35,8 @@ import type {
   Document,
   PositionHistoryPoint,
   PaginatedResponse,
+  FinancialStatement,
+  Dividend,
 } from "@/lib/types";
 import { PositionChart } from "./position-chart";
 
@@ -588,6 +590,320 @@ function DocumentsTab({ companyId }: { companyId: number }) {
   );
 }
 
+const STATEMENT_TYPES = [
+  { value: "BPA", label: "Ativo (BPA)" },
+  { value: "BPP", label: "Passivo (BPP)" },
+  { value: "DRE", label: "DRE" },
+  { value: "DFC_MI", label: "Fluxo de Caixa (DFC)" },
+];
+
+function FinancialTab({ companyId }: { companyId: number }) {
+  const [statements, setStatements] = useState<FinancialStatement[]>([]);
+  const [statementsTotal, setStatementsTotal] = useState(0);
+  const [statementsPage, setStatementsPage] = useState(1);
+  const [statementsLoading, setStatementsLoading] = useState(true);
+  const [statementType, setStatementType] = useState("");
+  const [statementsDateFrom, setStatementsDateFrom] = useState("");
+  const [statementsDateTo, setStatementsDateTo] = useState("");
+
+  const [dividends, setDividends] = useState<Dividend[]>([]);
+  const [dividendsTotal, setDividendsTotal] = useState(0);
+  const [dividendsPage, setDividendsPage] = useState(1);
+  const [dividendsLoading, setDividendsLoading] = useState(true);
+  const [dividendsDateFrom, setDividendsDateFrom] = useState("");
+  const [dividendsDateTo, setDividendsDateTo] = useState("");
+
+  const perPage = 20;
+
+  const fetchStatements = useCallback(async () => {
+    setStatementsLoading(true);
+    try {
+      const params: Record<string, string | number> = {
+        page: statementsPage,
+        per_page: perPage,
+      };
+      if (statementType) params.statement_type = statementType;
+      if (statementsDateFrom) params.date_from = statementsDateFrom;
+      if (statementsDateTo) params.date_to = statementsDateTo;
+
+      const result = await api.get<PaginatedResponse<FinancialStatement>>(
+        `/companies/${companyId}/financial-statements`,
+        { params }
+      );
+      setStatements(result.data);
+      setStatementsTotal(result.total);
+    } catch {
+      setStatements([]);
+      setStatementsTotal(0);
+    } finally {
+      setStatementsLoading(false);
+    }
+  }, [companyId, statementsPage, statementType, statementsDateFrom, statementsDateTo]);
+
+  const fetchDividends = useCallback(async () => {
+    setDividendsLoading(true);
+    try {
+      const params: Record<string, string | number> = {
+        page: dividendsPage,
+        per_page: perPage,
+      };
+      if (dividendsDateFrom) params.date_from = dividendsDateFrom;
+      if (dividendsDateTo) params.date_to = dividendsDateTo;
+
+      const result = await api.get<PaginatedResponse<Dividend>>(
+        `/companies/${companyId}/dividends`,
+        { params }
+      );
+      setDividends(result.data);
+      setDividendsTotal(result.total);
+    } catch {
+      setDividends([]);
+      setDividendsTotal(0);
+    } finally {
+      setDividendsLoading(false);
+    }
+  }, [companyId, dividendsPage, dividendsDateFrom, dividendsDateTo]);
+
+  useEffect(() => {
+    fetchStatements();
+  }, [fetchStatements]);
+
+  useEffect(() => {
+    fetchDividends();
+  }, [fetchDividends]);
+
+  const statementsTotalPages = Math.ceil(statementsTotal / perPage);
+  const dividendsTotalPages = Math.ceil(dividendsTotal / perPage);
+
+  return (
+    <div className="space-y-8">
+      {/* Financial Statements Section */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">Demonstrações Financeiras</h3>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Select
+            value={statementType || "all"}
+            onValueChange={(v) => {
+              setStatementType(v === "all" ? "" : v);
+              setStatementsPage(1);
+            }}
+          >
+            <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectValue placeholder="Tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os tipos</SelectItem>
+              {STATEMENT_TYPES.map((t) => (
+                <SelectItem key={t.value} value={t.value}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Input
+            type="date"
+            value={statementsDateFrom}
+            onChange={(e) => {
+              setStatementsDateFrom(e.target.value);
+              setStatementsPage(1);
+            }}
+            className="w-full sm:w-[160px]"
+          />
+          <Input
+            type="date"
+            value={statementsDateTo}
+            onChange={(e) => {
+              setStatementsDateTo(e.target.value);
+              setStatementsPage(1);
+            }}
+            className="w-full sm:w-[160px]"
+          />
+        </div>
+
+        {statementsLoading ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            Carregando...
+          </div>
+        ) : statements.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <DollarSign className="h-12 w-12 mb-3" />
+            <p className="text-lg">Nenhuma demonstração financeira encontrada</p>
+          </div>
+        ) : (
+          <>
+            <div className="text-sm text-muted-foreground">
+              {formatQuantity(statementsTotal)} registro
+              {statementsTotal !== 1 ? "s" : ""}
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data Ref.</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Código</TableHead>
+                  <TableHead>Conta</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {statements.map((fs) => (
+                  <TableRow key={fs.id}>
+                    <TableCell>{formatDate(fs.reference_date)}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{fs.statement_type}</Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {fs.account_code || "\u2014"}
+                    </TableCell>
+                    <TableCell>{fs.account_name || "\u2014"}</TableCell>
+                    <TableCell className="text-right font-mono">
+                      {fs.value != null ? formatCurrency(fs.value) : "\u2014"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            {statementsTotalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={statementsPage <= 1}
+                  onClick={() => setStatementsPage(statementsPage - 1)}
+                >
+                  Anterior
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Página {statementsPage} de {statementsTotalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={statementsPage >= statementsTotalPages}
+                  onClick={() => setStatementsPage(statementsPage + 1)}
+                >
+                  Próxima
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Dividends Section */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold">Dividendos</h3>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Input
+            type="date"
+            value={dividendsDateFrom}
+            onChange={(e) => {
+              setDividendsDateFrom(e.target.value);
+              setDividendsPage(1);
+            }}
+            className="w-full sm:w-[160px]"
+          />
+          <Input
+            type="date"
+            value={dividendsDateTo}
+            onChange={(e) => {
+              setDividendsDateTo(e.target.value);
+              setDividendsPage(1);
+            }}
+            className="w-full sm:w-[160px]"
+          />
+        </div>
+
+        {dividendsLoading ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            Carregando...
+          </div>
+        ) : dividends.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <DollarSign className="h-12 w-12 mb-3" />
+            <p className="text-lg">Nenhum dividendo encontrado</p>
+          </div>
+        ) : (
+          <>
+            <div className="text-sm text-muted-foreground">
+              {formatQuantity(dividendsTotal)} registro
+              {dividendsTotal !== 1 ? "s" : ""}
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data Ex</TableHead>
+                  <TableHead>Pagamento</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead className="text-right">Valor/Ação</TableHead>
+                  <TableHead className="text-right">Valor Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dividends.map((dv) => (
+                  <TableRow key={dv.id}>
+                    <TableCell>
+                      {dv.ex_date ? formatDate(dv.ex_date) : "\u2014"}
+                    </TableCell>
+                    <TableCell>
+                      {dv.payment_date
+                        ? formatDate(dv.payment_date)
+                        : "\u2014"}
+                    </TableCell>
+                    <TableCell>
+                      {dv.dividend_type ? (
+                        <Badge variant="secondary">{dv.dividend_type}</Badge>
+                      ) : (
+                        "\u2014"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      {dv.value_per_share != null
+                        ? formatCurrency(dv.value_per_share)
+                        : "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      {dv.total_value != null
+                        ? formatCurrency(dv.total_value)
+                        : "\u2014"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+
+            {dividendsTotalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={dividendsPage <= 1}
+                  onClick={() => setDividendsPage(dividendsPage - 1)}
+                >
+                  Anterior
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Página {dividendsPage} de {dividendsTotalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={dividendsPage >= dividendsTotalPages}
+                  onClick={() => setDividendsPage(dividendsPage + 1)}
+                >
+                  Próxima
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface CompanyDetailClientProps {
   company: CompanyDetail;
 }
@@ -603,6 +919,7 @@ export function CompanyDetailClient({ company }: CompanyDetailClientProps) {
           <TabsTrigger value="movimentacoes">Movimentações</TabsTrigger>
           <TabsTrigger value="evolucao">Evolução</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
+          <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
         </TabsList>
 
         <TabsContent value="posicoes">
@@ -619,6 +936,10 @@ export function CompanyDetailClient({ company }: CompanyDetailClientProps) {
 
         <TabsContent value="documentos">
           <DocumentsTab companyId={company.id} />
+        </TabsContent>
+
+        <TabsContent value="financeiro">
+          <FinancialTab companyId={company.id} />
         </TabsContent>
       </Tabs>
     </div>
