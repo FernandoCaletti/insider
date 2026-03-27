@@ -9,7 +9,9 @@ from api.app.routers import (
     companies,
     correlations,
     dashboard,
+    dividends,
     documents,
+    financial_statements,
     holdings,
     material_facts,
     rankings,
@@ -37,7 +39,9 @@ app.add_middleware(
 app.include_router(alerts.router, prefix="/api")
 app.include_router(companies.router, prefix="/api")
 app.include_router(correlations.router, prefix="/api")
+app.include_router(dividends.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
+app.include_router(financial_statements.router, prefix="/api")
 app.include_router(holdings.router, prefix="/api")
 app.include_router(material_facts.router, prefix="/api")
 app.include_router(rankings.router, prefix="/api")

@@ -241,6 +241,60 @@ export interface AlertsSummary {
   by_severity: { severity: string; count: number }[];
 }
 
+// Financial statement types
+export type StatementType = 'BPA' | 'BPP' | 'DRE' | 'DFC_MI';
+
+export interface FinancialStatement {
+  id: number;
+  company_id: number;
+  reference_date: string;
+  statement_type: StatementType;
+  account_code: string | null;
+  account_name: string | null;
+  value: number | null;
+  currency: string;
+  source_url: string | null;
+  created_at: string;
+  company_name?: string;
+  company_ticker?: string | null;
+}
+
+export interface FinancialSummary {
+  total_records: number;
+  companies_count: number;
+  statement_types_count: number;
+  earliest_date: string | null;
+  latest_date: string | null;
+  by_type: { statement_type: string; count: number }[];
+}
+
+// Dividend types
+export interface Dividend {
+  id: number;
+  company_id: number;
+  ex_date: string | null;
+  payment_date: string | null;
+  record_date: string | null;
+  dividend_type: string | null;
+  value_per_share: number | null;
+  total_value: number | null;
+  currency: string;
+  source_url: string | null;
+  created_at: string;
+  company_name?: string;
+  company_ticker?: string | null;
+}
+
+export interface DividendsSummary {
+  total_records: number;
+  companies_count: number;
+  total_distributed: number | null;
+  avg_value_per_share: number | null;
+  earliest_date: string | null;
+  latest_date: string | null;
+  by_type: { dividend_type: string; count: number; total_value: number }[];
+}
+
 export interface TopCorrelatedCompany {
   company_id: number;
   company_name: string;
