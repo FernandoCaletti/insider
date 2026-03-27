@@ -1,0 +1,38 @@
+"""FastAPI application entry point."""
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from api.app.config import get_settings
+from api.app.routers import companies, dashboard, documents, holdings, rankings, sync
+
+settings = get_settings()
+
+app = FastAPI(
+    title="InsiderTrack API",
+    description="API for Brazilian CVM insider trading data",
+    version="0.1.0",
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(companies.router, prefix="/api")
+app.include_router(documents.router, prefix="/api")
+app.include_router(holdings.router, prefix="/api")
+app.include_router(rankings.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
+app.include_router(sync.router, prefix="/api")
+
+
+@app.get("/api/health")
+async def health_check() -> dict:
+    """Health check endpoint."""
+    return {"status": "ok"}

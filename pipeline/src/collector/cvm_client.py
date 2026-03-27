@@ -1,0 +1,293 @@
+"""CVM data client for downloading cadastral and document data."""
+
+import csv
+import io
+import logging
+import urllib.request
+import zipfile
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CompanyRecord:
+    """Raw company record from CVM cadastral CSV."""
+
+    cvm_code: str
+    name: str
+    cnpj: str
+    sector: str | None
+    subsector: str | None
+    is_active: bool
+
+
+def fetch_cadastral_csv(
+    base_url: str = "https://dados.cvm.gov.br",
+) -> str:
+    """Download the CVM cadastral CSV for open companies.
+
+    The CSV is encoded in ISO-8859-1 with semicolon delimiter.
+
+    Args:
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        Raw CSV content as string.
+    """
+    url = f"{base_url}/dados/CIA_ABERTA/CAD/DADOS/cad_cia_aberta.csv"
+    logger.info("Downloading cadastral CSV from %s", url)
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "InsiderTrack/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        raw_bytes: bytes = response.read()
+
+    content = raw_bytes.decode("iso-8859-1")
+    logger.info("Downloaded cadastral CSV (%d bytes)", len(raw_bytes))
+    return content
+
+
+def _parse_sector(setor_ativ: str) -> tuple[str | None, str | None]:
+    """Parse sector and subsector from SETOR_ATIV field.
+
+    CVM uses formats like "Intermediários Financeiros / Bancos".
+    We split on " / " to separate sector from subsector when possible.
+
+    Args:
+        setor_ativ: Raw sector activity string from CVM.
+
+    Returns:
+        Tuple of (sector, subsector).
+    """
+    if not setor_ativ or not setor_ativ.strip():
+        return None, None
+
+    setor_ativ = setor_ativ.strip()
+
+    if " / " in setor_ativ:
+        parts = setor_ativ.split(" / ", 1)
+        return parts[0].strip(), parts[1].strip()
+
+    return setor_ativ, None
+
+
+def parse_cadastral_csv(csv_content: str) -> list[CompanyRecord]:
+    """Parse CVM cadastral CSV content into CompanyRecord list.
+
+    The CSV uses semicolon delimiter and contains company registration data.
+
+    Args:
+        csv_content: Raw CSV string content.
+
+    Returns:
+        List of parsed company records.
+    """
+    reader = csv.DictReader(io.StringIO(csv_content), delimiter=";")
+
+    records: list[CompanyRecord] = []
+    for row in reader:
+        cvm_code = row.get("CD_CVM", "").strip()
+        name = row.get("DENOM_SOCIAL", "").strip()
+        cnpj = row.get("CNPJ_CIA", "").strip()
+        setor_ativ = row.get("SETOR_ATIV", "").strip()
+        sit = row.get("SIT", "").strip()
+
+        if not cvm_code or not name:
+            continue
+
+        sector, subsector = _parse_sector(setor_ativ)
+        is_active = sit.upper() == "ATIVO"
+
+        records.append(
+            CompanyRecord(
+                cvm_code=cvm_code,
+                name=name,
+                cnpj=cnpj,
+                sector=sector,
+                subsector=subsector,
+                is_active=is_active,
+            )
+        )
+
+    logger.info("Parsed %d company records from cadastral CSV", len(records))
+    return records
+
+
+def fetch_and_parse_companies(
+    base_url: str = "https://dados.cvm.gov.br",
+) -> list[CompanyRecord]:
+    """Fetch and parse CVM cadastral data in one step.
+
+    Args:
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        List of parsed company records.
+    """
+    csv_content = fetch_cadastral_csv(base_url)
+    return parse_cadastral_csv(csv_content)
+
+
+# ---------------------------------------------------------------------------
+# Document CSV (annual ZIP with insider trading filings metadata)
+# ---------------------------------------------------------------------------
+
+# CVM IPE category for insider trading position disclosures.
+INSIDER_TRADING_CATEGORY = "Valores Mobiliários Negociados e Detidos"
+
+
+@dataclass
+class DocumentRecord:
+    """A CVM document metadata record from the IPE CSV."""
+
+    cvm_code: str
+    cnpj: str
+    reference_date: str  # YYYY-MM-DD
+    delivery_date: str  # YYYY-MM-DD
+    document_url: str
+    category: str
+    document_type: str
+    status: str
+    version: str
+
+
+def fetch_document_zip(
+    year: int,
+    base_url: str = "https://dados.cvm.gov.br",
+) -> str:
+    """Download annual CVM IPE ZIP and extract the CSV content.
+
+    The ZIP is at a well-known path and contains a single CSV file
+    encoded in ISO-8859-1 with semicolon delimiter.
+
+    Args:
+        year: The year to download (e.g. 2025).
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        Raw CSV content as string.
+    """
+    url = f"{base_url}/dados/CIA_ABERTA/DOC/IPE/DADOS/ipe_cia_aberta_{year}.zip"
+    logger.info("Downloading document ZIP from %s", url)
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "InsiderTrack/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=120) as response:
+        raw_bytes: bytes = response.read()
+
+    logger.info("Downloaded document ZIP (%d bytes)", len(raw_bytes))
+
+    with zipfile.ZipFile(io.BytesIO(raw_bytes)) as zf:
+        csv_filename = f"ipe_cia_aberta_{year}.csv"
+        # Fallback: pick first CSV if exact name doesn't match
+        names = zf.namelist()
+        if csv_filename not in names:
+            csv_files = [n for n in names if n.endswith(".csv")]
+            if not csv_files:
+                raise ValueError(f"No CSV file found in ZIP for year {year}")
+            csv_filename = csv_files[0]
+            logger.warning(
+                "Expected %s not found, using %s",
+                f"ipe_cia_aberta_{year}.csv",
+                csv_filename,
+            )
+
+        raw_csv_bytes = zf.read(csv_filename)
+
+    content = raw_csv_bytes.decode("iso-8859-1")
+    logger.info("Extracted CSV %s (%d bytes)", csv_filename, len(raw_csv_bytes))
+    return content
+
+
+def _get_field(row: dict[str, str], *candidates: str) -> str:
+    """Return the first non-empty value found among candidate column names."""
+    for key in candidates:
+        val = row.get(key, "").strip()
+        if val:
+            return val
+    return ""
+
+
+def parse_document_csv(
+    csv_content: str,
+    category_filter: str = INSIDER_TRADING_CATEGORY,
+) -> list[DocumentRecord]:
+    """Parse IPE CSV and filter for insider trading documents.
+
+    Supports both legacy column names (CATEG_DOC, CD_CVM, etc.) and the
+    current CVM format (Categoria, Codigo_CVM, etc.).
+
+    Args:
+        csv_content: Raw CSV string (ISO-8859-1 decoded).
+        category_filter: Only keep rows whose category contains this string.
+
+    Returns:
+        List of DocumentRecord for matching documents.
+    """
+    reader = csv.DictReader(io.StringIO(csv_content), delimiter=";")
+
+    records: list[DocumentRecord] = []
+    total_rows = 0
+    for row in reader:
+        total_rows += 1
+        categ = _get_field(row, "CATEG_DOC", "Categoria")
+        if category_filter and category_filter.lower() not in categ.lower():
+            continue
+
+        cvm_code = _get_field(row, "CD_CVM", "Codigo_CVM")
+        cnpj = _get_field(row, "CNPJ_CIA", "CNPJ_Companhia")
+        dt_refer = _get_field(row, "DT_REFER", "Data_Referencia")
+        dt_receb = _get_field(row, "DT_RECEB", "Data_Entrega")
+        link_doc = _get_field(row, "LINK_DOC", "Link_Download")
+        tp_doc = _get_field(row, "TP_DOC", "Tipo")
+        sit_doc = _get_field(row, "SIT_DOC", "Tipo_Apresentacao")
+        versao = _get_field(row, "VERSAO", "Versao")
+
+        if not cvm_code or not link_doc:
+            continue
+
+        records.append(
+            DocumentRecord(
+                cvm_code=cvm_code,
+                cnpj=cnpj,
+                reference_date=dt_refer,
+                delivery_date=dt_receb,
+                document_url=link_doc,
+                category=categ,
+                document_type=tp_doc,
+                status=sit_doc,
+                version=versao,
+            )
+        )
+
+    logger.info(
+        "Parsed %d insider trading documents from %d total rows",
+        len(records),
+        total_rows,
+    )
+    return records
+
+
+def fetch_and_parse_documents(
+    year: int,
+    base_url: str = "https://dados.cvm.gov.br",
+) -> list[DocumentRecord]:
+    """Fetch and parse CVM document data for a given year.
+
+    Downloads the annual IPE ZIP, extracts the CSV, and filters
+    for insider trading category documents.
+
+    Args:
+        year: The year to fetch documents for.
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        List of insider trading document records.
+    """
+    csv_content = fetch_document_zip(year, base_url)
+    return parse_document_csv(csv_content)
