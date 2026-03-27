@@ -156,11 +156,14 @@ async def get_company_documents(
         cur.execute(f"SELECT COUNT(*) AS cnt FROM documents {where}", params)
         total = cur.fetchone()["cnt"]  # type: ignore[index]
 
-        # Get paginated results
+        # Get paginated results with aliased columns for frontend
         params.extend([per_page, offset])
         cur.execute(
             f"""
-            SELECT * FROM documents {where}
+            SELECT id, company_id, reference_date, year, month,
+                   file_hash, file_name AS filename, original_url AS source_url,
+                   page_count, is_scanned, processed_at, created_at
+            FROM documents {where}
             ORDER BY reference_date DESC
             LIMIT %s OFFSET %s
             """,
