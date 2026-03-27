@@ -4,7 +4,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.app.config import get_settings
-from api.app.routers import companies, dashboard, documents, holdings, rankings, sync
+from api.app.routers import (
+    companies,
+    dashboard,
+    documents,
+    holdings,
+    material_facts,
+    rankings,
+    sync,
+)
 
 settings = get_settings()
 
@@ -27,6 +35,7 @@ app.add_middleware(
 app.include_router(companies.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")
 app.include_router(holdings.router, prefix="/api")
+app.include_router(material_facts.router, prefix="/api")
 app.include_router(rankings.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")

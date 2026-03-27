@@ -259,6 +259,65 @@ async def get_company_holdings(
     }
 
 
+@router.get("/{company_id}/material-facts")
+async def get_company_material_facts(
+    company_id: int,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    """Get material facts for a specific company."""
+    offset = (page - 1) * per_page
+
+    with get_cursor() as cur:
+        # Verify company exists
+        cur.execute("SELECT id FROM companies WHERE id = %s", (company_id,))
+        if not cur.fetchone():
+            raise _not_found()
+
+        conditions = ["company_id = %s"]
+        params: list[Any] = [company_id]
+
+        if date_from is not None:
+            conditions.append("reference_date >= %s")
+            params.append(date_from)
+
+        if date_to is not None:
+            conditions.append("reference_date <= %s")
+            params.append(date_to)
+
+        where = "WHERE " + " AND ".join(conditions)
+
+        # Count
+        cur.execute(
+            f"SELECT COUNT(*) AS cnt FROM material_facts {where}",
+            params,
+        )
+        total = cur.fetchone()["cnt"]  # type: ignore[index]
+
+        # Paginated results
+        params.extend([per_page, offset])
+        cur.execute(
+            f"""
+            SELECT id, company_id, reference_date, category, subject,
+                   source_url, cvm_code, protocol, delivery_date, created_at
+            FROM material_facts {where}
+            ORDER BY reference_date DESC, id DESC
+            LIMIT %s OFFSET %s
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+
+    return {
+        "data": [dict(r) for r in rows],  # type: ignore[arg-type]
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+
 @router.get("/{company_id}/position-history")
 async def get_position_history(
     company_id: int,
