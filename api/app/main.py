@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.app.config import get_settings
 from api.app.routers import (
+    alerts,
     companies,
     correlations,
     dashboard,
@@ -33,6 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(alerts.router, prefix="/api")
 app.include_router(companies.router, prefix="/api")
 app.include_router(correlations.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")

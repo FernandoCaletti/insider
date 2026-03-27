@@ -318,6 +318,70 @@ async def get_company_material_facts(
     }
 
 
+@router.get("/{company_id}/alerts")
+async def get_company_alerts(
+    company_id: int,
+    alert_type: str | None = None,
+    severity: str | None = None,
+    is_read: bool | None = None,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+) -> dict[str, Any]:
+    """Get alerts for a specific company."""
+    offset = (page - 1) * per_page
+
+    with get_cursor() as cur:
+        # Verify company exists
+        cur.execute("SELECT id FROM companies WHERE id = %s", (company_id,))
+        if not cur.fetchone():
+            raise _not_found()
+
+        conditions = ["company_id = %s"]
+        params: list[Any] = [company_id]
+
+        if alert_type:
+            conditions.append("alert_type = %s")
+            params.append(alert_type)
+
+        if severity:
+            conditions.append("severity = %s")
+            params.append(severity)
+
+        if is_read is not None:
+            conditions.append("is_read = %s")
+            params.append(is_read)
+
+        where = "WHERE " + " AND ".join(conditions)
+
+        # Count
+        cur.execute(
+            f"SELECT COUNT(*) AS cnt FROM alerts {where}",
+            params,
+        )
+        total = cur.fetchone()["cnt"]  # type: ignore[index]
+
+        # Paginated results
+        params.extend([per_page, offset])
+        cur.execute(
+            f"""
+            SELECT id, company_id, holding_id, alert_type, severity,
+                   title, description, metadata, is_read, created_at
+            FROM alerts {where}
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s OFFSET %s
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+
+    return {
+        "data": [dict(r) for r in rows],  # type: ignore[arg-type]
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }
+
+
 @router.get("/{company_id}/position-history")
 async def get_position_history(
     company_id: int,

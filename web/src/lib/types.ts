@@ -187,6 +187,32 @@ export interface CorrelationSummary {
   movements_after_fact: number;
 }
 
+// Alert types
+export type AlertType = 'alto_valor' | 'volume_atipico' | 'mudanca_direcao' | 'retorno_atividade';
+export type AlertSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+export interface Alert {
+  id: number;
+  company_id: number;
+  holding_id: number | null;
+  alert_type: AlertType;
+  severity: AlertSeverity;
+  title: string;
+  description: string | null;
+  metadata: Record<string, unknown> | null;
+  is_read: boolean;
+  created_at: string;
+  company_name?: string;
+  company_ticker?: string | null;
+}
+
+export interface AlertsSummary {
+  total: number;
+  unread: number;
+  by_type: { alert_type: string; count: number }[];
+  by_severity: { severity: string; count: number }[];
+}
+
 export interface TopCorrelatedCompany {
   company_id: number;
   company_name: string;
