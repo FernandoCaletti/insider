@@ -585,3 +585,157 @@ def fetch_and_parse_financial_statements(
     """
     zip_bytes = fetch_financial_zip(year, report_type, base_url)
     return parse_financial_zip(zip_bytes, year, report_type, statement_types)
+
+
+# ---------------------------------------------------------------------------
+# Dividends CSV (FCA — Formulário Cadastral, proventos em dinheiro)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DividendRecord:
+    """A CVM dividend (provento) record from the FCA CSV."""
+
+    cvm_code: str
+    ex_date: str  # YYYY-MM-DD or empty
+    payment_date: str  # YYYY-MM-DD or empty
+    record_date: str  # YYYY-MM-DD or empty
+    dividend_type: str  # Dividendo, JCP, etc.
+    value_per_share: str  # raw string, converted downstream
+    total_value: str  # raw string, converted downstream
+    currency: str
+    source_url: str
+    version: str
+
+
+def fetch_dividends_zip(
+    year: int,
+    base_url: str = "https://dados.cvm.gov.br",
+) -> bytes:
+    """Download annual CVM FCA ZIP containing proventos CSV.
+
+    Args:
+        year: The year to download.
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        Raw ZIP bytes.
+    """
+    url = f"{base_url}/dados/CIA_ABERTA/DOC/FCA/DADOS/fca_cia_aberta_{year}.zip"
+    logger.info("Downloading FCA ZIP from %s", url)
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "InsiderTrack/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=120) as response:
+        raw_bytes: bytes = response.read()
+
+    logger.info("Downloaded FCA ZIP (%d bytes)", len(raw_bytes))
+    return raw_bytes
+
+
+def parse_dividends_csv(
+    csv_content: str,
+) -> list[DividendRecord]:
+    """Parse FCA proventos CSV into DividendRecord list.
+
+    Supports both legacy and current CVM column names.
+
+    Args:
+        csv_content: Raw CSV string (ISO-8859-1 decoded).
+
+    Returns:
+        List of DividendRecord.
+    """
+    reader = csv.DictReader(io.StringIO(csv_content), delimiter=";")
+
+    records: list[DividendRecord] = []
+    for row in reader:
+        cvm_code = _get_field(row, "CD_CVM", "Codigo_CVM")
+        if not cvm_code:
+            continue
+
+        dt_ex = _get_field(row, "Data_Ex", "DT_EX", "DT_EX_DIVIDENDO")
+        dt_pagamento = _get_field(
+            row, "Data_Pagamento", "DT_PAGAMENTO", "DT_PAG"
+        )
+        dt_aprovacao = _get_field(
+            row, "Data_Aprovacao", "DT_APROVACAO", "Data_Registro", "DT_REGISTRO"
+        )
+        tp_provento = _get_field(
+            row, "Tipo_Provento", "TP_PROVENTO", "Descricao_Provento", "DS_PROVENTO"
+        )
+        vl_provento = _get_field(
+            row, "Valor_Provento", "VL_PROVENTO", "VL_PROVENTO_ACAO"
+        )
+        vl_total = _get_field(
+            row, "Valor_Total", "VL_TOTAL", "VL_TOTAL_PROVENTO"
+        )
+        moeda = _get_field(row, "MOEDA", "Moeda") or "BRL"
+        versao = _get_field(row, "VERSAO", "Versao")
+
+        if not dt_ex and not dt_pagamento:
+            continue
+
+        records.append(
+            DividendRecord(
+                cvm_code=cvm_code,
+                ex_date=dt_ex,
+                payment_date=dt_pagamento,
+                record_date=dt_aprovacao,
+                dividend_type=tp_provento or "Dividendo",
+                value_per_share=vl_provento,
+                total_value=vl_total,
+                currency=moeda,
+                source_url="",
+                version=versao,
+            )
+        )
+
+    logger.info("Parsed %d dividend records from FCA CSV", len(records))
+    return records
+
+
+def fetch_and_parse_dividends(
+    year: int,
+    base_url: str = "https://dados.cvm.gov.br",
+) -> list[DividendRecord]:
+    """Fetch and parse CVM dividend data for a given year.
+
+    Downloads the FCA ZIP, extracts the proventos CSV, and parses it
+    into DividendRecord objects.
+
+    Args:
+        year: The year to fetch dividends for.
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        List of dividend records.
+    """
+    zip_bytes = fetch_dividends_zip(year, base_url)
+
+    # Extract proventos CSV from FCA ZIP
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = zf.namelist()
+        # Look for proventos CSV (case-insensitive)
+        prov_filename = None
+        for n in names:
+            if "prov_dinheiro" in n.lower() and n.lower().endswith(".csv"):
+                prov_filename = n
+                break
+
+        if prov_filename is None:
+            logger.warning(
+                "No prov_dinheiro CSV found in FCA ZIP for year %d. "
+                "Available files: %s",
+                year,
+                names,
+            )
+            return []
+
+        raw_csv_bytes = zf.read(prov_filename)
+
+    content = raw_csv_bytes.decode("iso-8859-1")
+    logger.info("Extracted %s (%d bytes)", prov_filename, len(raw_csv_bytes))
+    return parse_dividends_csv(content)

@@ -11,6 +11,7 @@ import psycopg2.extras
 
 from pipeline.src.collector.cvm_client import (
     CompanyRecord,
+    DividendRecord,
     FinancialStatementRecord,
     MaterialFactRecord,
 )
@@ -536,6 +537,109 @@ def upsert_financial_statements(
     except Exception:
         conn.rollback()
         logger.exception("Error upserting financial statements")
+        raise
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Dividends upsert
+# ---------------------------------------------------------------------------
+
+
+def upsert_dividends(
+    database_url: str,
+    records: list[DividendRecord],
+    company_map: dict[str, int],
+    batch_size: int = 100,
+) -> int:
+    """Batch upsert dividend records into the dividends table.
+
+    Uses ON CONFLICT (company_id, ex_date, dividend_type) for idempotent
+    imports. Skips records whose cvm_code is not in company_map.
+
+    Args:
+        database_url: PostgreSQL connection string.
+        records: List of DividendRecord from CVM CSV.
+        company_map: Mapping of cvm_code -> company_id.
+        batch_size: Number of records per batch.
+
+    Returns:
+        Number of records upserted.
+    """
+    if not records:
+        return 0
+
+    upsert_sql = """
+        INSERT INTO dividends
+            (company_id, ex_date, payment_date, record_date, dividend_type,
+             value_per_share, total_value, currency, source_url)
+        VALUES
+            (%(company_id)s, %(ex_date)s, %(payment_date)s, %(record_date)s,
+             %(dividend_type)s, %(value_per_share)s, %(total_value)s,
+             %(currency)s, %(source_url)s)
+        ON CONFLICT (company_id, ex_date, dividend_type) DO UPDATE SET
+            payment_date = EXCLUDED.payment_date,
+            record_date = EXCLUDED.record_date,
+            value_per_share = EXCLUDED.value_per_share,
+            total_value = EXCLUDED.total_value,
+            currency = EXCLUDED.currency,
+            source_url = EXCLUDED.source_url
+    """
+
+    conn = psycopg2.connect(database_url)
+    try:
+        total_upserted = 0
+        skipped = 0
+        with conn.cursor() as cur:
+            for i in range(0, len(records), batch_size):
+                batch = records[i : i + batch_size]
+                params: list[dict[str, Any]] = []
+                for r in batch:
+                    company_id = company_map.get(r.cvm_code)
+                    if company_id is None:
+                        skipped += 1
+                        continue
+                    # Convert value strings to float or None
+                    vps: float | None = None
+                    if r.value_per_share:
+                        try:
+                            vps = float(r.value_per_share.replace(",", "."))
+                        except ValueError:
+                            vps = None
+                    tv: float | None = None
+                    if r.total_value:
+                        try:
+                            tv = float(r.total_value.replace(",", "."))
+                        except ValueError:
+                            tv = None
+                    params.append(
+                        {
+                            "company_id": company_id,
+                            "ex_date": r.ex_date or None,
+                            "payment_date": r.payment_date or None,
+                            "record_date": r.record_date or None,
+                            "dividend_type": r.dividend_type or None,
+                            "value_per_share": vps,
+                            "total_value": tv,
+                            "currency": r.currency or "BRL",
+                            "source_url": r.source_url or None,
+                        }
+                    )
+                if params:
+                    psycopg2.extras.execute_batch(cur, upsert_sql, params)
+                    total_upserted += len(params)
+
+        conn.commit()
+        logger.info(
+            "Upserted %d dividends (%d skipped - unknown company)",
+            total_upserted,
+            skipped,
+        )
+        return total_upserted
+    except Exception:
+        conn.rollback()
+        logger.exception("Error upserting dividends")
         raise
     finally:
         conn.close()
