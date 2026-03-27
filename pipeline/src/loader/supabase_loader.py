@@ -9,7 +9,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
-from pipeline.src.collector.cvm_client import CompanyRecord
+from pipeline.src.collector.cvm_client import CompanyRecord, MaterialFactRecord
 from pipeline.src.extractor.pdf_parser import HoldingRecord
 
 logger = logging.getLogger(__name__)
@@ -354,6 +354,92 @@ def upsert_holdings(
     except Exception:
         conn.rollback()
         logger.exception("Error inserting holdings for document_id=%d", document_id)
+        raise
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Material facts upsert
+# ---------------------------------------------------------------------------
+
+
+def upsert_material_facts(
+    database_url: str,
+    facts: list[MaterialFactRecord],
+    company_map: dict[str, int],
+    batch_size: int = 100,
+) -> int:
+    """Batch upsert material fact records into the material_facts table.
+
+    Uses ON CONFLICT (protocol) for idempotent imports. Skips records
+    whose cvm_code is not found in company_map.
+
+    Args:
+        database_url: PostgreSQL connection string.
+        facts: List of MaterialFactRecord from CVM CSV.
+        company_map: Mapping of cvm_code -> company_id.
+        batch_size: Number of records per batch.
+
+    Returns:
+        Number of records upserted.
+    """
+    if not facts:
+        return 0
+
+    upsert_sql = """
+        INSERT INTO material_facts
+            (company_id, reference_date, category, subject, source_url,
+             cvm_code, protocol, delivery_date)
+        VALUES
+            (%(company_id)s, %(reference_date)s, %(category)s, %(subject)s,
+             %(source_url)s, %(cvm_code)s, %(protocol)s, %(delivery_date)s)
+        ON CONFLICT (protocol) DO UPDATE SET
+            category = EXCLUDED.category,
+            subject = EXCLUDED.subject,
+            source_url = EXCLUDED.source_url,
+            delivery_date = EXCLUDED.delivery_date
+    """
+
+    conn = psycopg2.connect(database_url)
+    try:
+        total_upserted = 0
+        skipped = 0
+        with conn.cursor() as cur:
+            for i in range(0, len(facts), batch_size):
+                batch = facts[i : i + batch_size]
+                params: list[dict[str, Any]] = []
+                for f in batch:
+                    company_id = company_map.get(f.cvm_code)
+                    if company_id is None:
+                        skipped += 1
+                        continue
+                    params.append(
+                        {
+                            "company_id": company_id,
+                            "reference_date": f.reference_date or None,
+                            "category": f.category or None,
+                            "subject": f.subject or None,
+                            "source_url": f.source_url or None,
+                            "cvm_code": f.cvm_code,
+                            "protocol": f.protocol,
+                            "delivery_date": f.delivery_date or None,
+                        }
+                    )
+                if params:
+                    psycopg2.extras.execute_batch(cur, upsert_sql, params)
+                    total_upserted += len(params)
+
+        conn.commit()
+        logger.info(
+            "Upserted %d material facts (%d skipped - unknown company)",
+            total_upserted,
+            skipped,
+        )
+        return total_upserted
+    except Exception:
+        conn.rollback()
+        logger.exception("Error upserting material facts")
         raise
     finally:
         conn.close()

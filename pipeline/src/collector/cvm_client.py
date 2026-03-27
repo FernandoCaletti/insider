@@ -291,3 +291,128 @@ def fetch_and_parse_documents(
     """
     csv_content = fetch_document_zip(year, base_url)
     return parse_document_csv(csv_content)
+
+
+# ---------------------------------------------------------------------------
+# Material Facts CSV (annual ZIP with "Fatos Relevantes")
+# ---------------------------------------------------------------------------
+
+# CVM IPE category for material facts disclosures.
+MATERIAL_FACTS_CATEGORY = "Fato Relevante"
+
+
+@dataclass
+class MaterialFactRecord:
+    """A CVM material fact record from the IPE CSV."""
+
+    cvm_code: str
+    cnpj: str
+    reference_date: str  # YYYY-MM-DD
+    delivery_date: str  # YYYY-MM-DD
+    category: str
+    subject: str
+    source_url: str
+    protocol: str
+    version: str
+    status: str
+
+
+def fetch_material_facts_csv(
+    year: int,
+    base_url: str = "https://dados.cvm.gov.br",
+) -> str:
+    """Download annual CVM IPE ZIP and extract material facts CSV.
+
+    Material facts ("Fatos Relevantes") share the IPE CSV with insider
+    trading documents; they are filtered by the MATERIAL_FACTS_CATEGORY.
+    We reuse the same IPE ZIP download.
+
+    Args:
+        year: The year to download (e.g. 2025).
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        Raw CSV content as string.
+    """
+    return fetch_document_zip(year, base_url)
+
+
+def parse_material_facts_csv(
+    csv_content: str,
+    category_filter: str = MATERIAL_FACTS_CATEGORY,
+) -> list[MaterialFactRecord]:
+    """Parse IPE CSV and filter for material fact documents.
+
+    Supports both legacy column names and the current CVM format.
+
+    Args:
+        csv_content: Raw CSV string (ISO-8859-1 decoded).
+        category_filter: Only keep rows whose category contains this string.
+
+    Returns:
+        List of MaterialFactRecord for matching documents.
+    """
+    reader = csv.DictReader(io.StringIO(csv_content), delimiter=";")
+
+    records: list[MaterialFactRecord] = []
+    total_rows = 0
+    for row in reader:
+        total_rows += 1
+        categ = _get_field(row, "CATEG_DOC", "Categoria")
+        if category_filter and category_filter.lower() not in categ.lower():
+            continue
+
+        cvm_code = _get_field(row, "CD_CVM", "Codigo_CVM")
+        cnpj = _get_field(row, "CNPJ_CIA", "CNPJ_Companhia")
+        dt_refer = _get_field(row, "DT_REFER", "Data_Referencia")
+        dt_receb = _get_field(row, "DT_RECEB", "Data_Entrega")
+        link_doc = _get_field(row, "LINK_DOC", "Link_Download")
+        assunto = _get_field(row, "ASSUNTO", "Assunto")
+        protocolo = _get_field(row, "PROTOCOLO", "Protocolo")
+        versao = _get_field(row, "VERSAO", "Versao")
+        sit_doc = _get_field(row, "SIT_DOC", "Tipo_Apresentacao")
+
+        if not cvm_code or not protocolo:
+            continue
+
+        records.append(
+            MaterialFactRecord(
+                cvm_code=cvm_code,
+                cnpj=cnpj,
+                reference_date=dt_refer,
+                delivery_date=dt_receb,
+                category=categ,
+                subject=assunto,
+                source_url=link_doc,
+                protocol=protocolo,
+                version=versao,
+                status=sit_doc,
+            )
+        )
+
+    logger.info(
+        "Parsed %d material fact records from %d total rows",
+        len(records),
+        total_rows,
+    )
+    return records
+
+
+def fetch_and_parse_material_facts(
+    year: int,
+    base_url: str = "https://dados.cvm.gov.br",
+) -> list[MaterialFactRecord]:
+    """Fetch and parse CVM material facts for a given year.
+
+    Downloads the annual IPE ZIP, extracts the CSV, and filters
+    for material fact ("Fato Relevante") documents.
+
+    Args:
+        year: The year to fetch material facts for.
+        base_url: Base URL for CVM data portal.
+
+    Returns:
+        List of material fact records.
+    """
+    csv_content = fetch_material_facts_csv(year, base_url)
+    return parse_material_facts_csv(csv_content)
