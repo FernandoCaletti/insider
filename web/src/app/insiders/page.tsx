@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
@@ -34,7 +34,7 @@ const INSIDER_GROUPS = [
   { value: "Pessoas Ligadas", label: "Pessoas Ligadas" },
 ];
 
-export default function InsidersPage() {
+function InsidersContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -240,5 +240,13 @@ export default function InsidersPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function InsidersPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8 text-muted-foreground">Carregando...</div>}>
+      <InsidersContent />
+    </Suspense>
   );
 }
