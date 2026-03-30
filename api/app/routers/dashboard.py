@@ -118,9 +118,9 @@ async def dashboard_summary() -> dict[str, Any]:
         row = cur.fetchone()
         new_companies_this_month = row["cnt"] if row else 0  # type: ignore[index]
 
-        # Movements 30d and previous 30d
-        since_30d = today - timedelta(days=30)
-        since_60d = today - timedelta(days=60)
+        # Movements 90d and previous 90d
+        since_30d = today - timedelta(days=90)
+        since_60d = today - timedelta(days=180)
 
         cur.execute(
             """
@@ -530,10 +530,10 @@ async def hero_insight() -> dict[str, Any]:
 
 @router.get("/market-temperature")
 async def market_temperature() -> dict[str, Any]:
-    """Aggregate buy vs sell activity over 30 days, compared with previous 30 days."""
+    """Aggregate buy vs sell activity over 90 days, compared with previous 90 days."""
     today = date.today()
-    since_30d = today - timedelta(days=30)
-    since_60d = today - timedelta(days=60)
+    since_30d = today - timedelta(days=90)
+    since_60d = today - timedelta(days=180)
 
     with get_cursor() as cur:
         cur.execute(
@@ -625,8 +625,8 @@ async def activity_radar(
 ) -> dict[str, Any]:
     """Top companies with atypical activity."""
     today = date.today()
-    since_1m = today - timedelta(days=30)
-    since_6m = today - timedelta(days=180)
+    since_1m = today - timedelta(days=90)
+    since_6m = today - timedelta(days=365)
 
     with get_cursor() as cur:
         # Get companies with current month ops and 6-month average

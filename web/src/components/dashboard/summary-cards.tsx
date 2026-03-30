@@ -58,7 +58,7 @@ export function SummaryCards({ data }: { data: DashboardSummaryExtended }) {
       valueColor: "",
     },
     {
-      title: "Movimentações (30d)",
+      title: "Movimentações (90d)",
       icon: ArrowLeftRight,
       value: formatQuantity(data.movements_30d),
       sub: null as string | null,
@@ -67,7 +67,7 @@ export function SummaryCards({ data }: { data: DashboardSummaryExtended }) {
       change: data.movements_30d_change_pct,
     },
     {
-      title: "Saldo líquido (30d)",
+      title: "Saldo líquido (90d)",
       icon: BalanceIcon,
       value: formatCompactCurrency(data.balance_30d),
       sub: null as string | null,
