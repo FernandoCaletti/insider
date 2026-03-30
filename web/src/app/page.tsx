@@ -44,11 +44,11 @@ interface DashboardSummaryResponse {
 async function getDashboardData() {
   const [summary, movements] = await Promise.allSettled([
     api.get<{ data: DashboardSummaryResponse }>("/dashboard/summary", {
-      next: { revalidate: 3600 },
+      next: { revalidate: 60 },
     }),
     api.get<{ data: RecentMovement[] }>("/dashboard/recent-movements", {
       params: { days: 90, limit: 10 },
-      next: { revalidate: 3600 },
+      next: { revalidate: 60 },
     }),
   ]);
 
