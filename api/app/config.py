@@ -9,8 +9,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://postgres:password@localhost:5432/insidertrack"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    port: int = 8000  # Railway sets PORT env var
     api_env: str = "development"
-    cors_origins: str = "http://localhost:3000,https://insidertrack.com.br"
+    cors_origins: str = "http://localhost:3000,https://insight-cvm.vercel.app"
     log_level: str = "INFO"
 
     @property

@@ -22,8 +22,8 @@ from api.app.routers import (
 settings = get_settings()
 
 app = FastAPI(
-    title="InsiderTrack API",
-    description="API for Brazilian CVM insider trading data",
+    title="InSight API",
+    description="Inteligência em Movimentações de Insiders — CVM Brasil",
     version="0.1.0",
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",

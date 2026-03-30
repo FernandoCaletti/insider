@@ -368,7 +368,7 @@ def parse_material_facts_csv(
         dt_receb = _get_field(row, "DT_RECEB", "Data_Entrega")
         link_doc = _get_field(row, "LINK_DOC", "Link_Download")
         assunto = _get_field(row, "ASSUNTO", "Assunto")
-        protocolo = _get_field(row, "PROTOCOLO", "Protocolo")
+        protocolo = _get_field(row, "PROTOCOLO", "Protocolo_Entrega", "Protocolo")
         versao = _get_field(row, "VERSAO", "Versao")
         sit_doc = _get_field(row, "SIT_DOC", "Tipo_Apresentacao")
 
@@ -458,7 +458,7 @@ def fetch_financial_zip(
     """
     rt = report_type.lower()
     RT = report_type.upper()
-    url = f"{base_url}/dados/CIA_ABERTA/DOC/{RT}/DADOS/{rt}_cia_aberta_con_{year}.zip"
+    url = f"{base_url}/dados/CIA_ABERTA/DOC/{RT}/DADOS/{rt}_cia_aberta_{year}.zip"
     logger.info("Downloading financial ZIP from %s", url)
 
     req = urllib.request.Request(
@@ -481,7 +481,7 @@ def _parse_financial_csv(
 
     records: list[FinancialStatementRecord] = []
     for row in reader:
-        cvm_code = _get_field(row, "CD_CVM", "Codigo_CVM")
+        cvm_code = _get_field(row, "CD_CVM", "Codigo_CVM").lstrip("0") or "0"
         dt_refer = _get_field(row, "DT_REFER", "Data_Referencia")
         cd_conta = _get_field(row, "CD_CONTA", "Codigo_Conta")
         ds_conta = _get_field(row, "DS_CONTA", "Descricao_Conta")
@@ -535,7 +535,7 @@ def parse_financial_zip(
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         names = zf.namelist()
         for st in statement_types:
-            csv_filename = f"{rt}_cia_aberta_con_{st}_{year}.csv"
+            csv_filename = f"{rt}_cia_aberta_{st}_con_{year}.csv"
             # Try case-insensitive match
             match = None
             for n in names:
@@ -806,54 +806,57 @@ def parse_positions_csv(
 
     records: list[InsiderPositionRecord] = []
     for row in reader:
+        # Support CD_CVM, Codigo_CVM, or CNPJ_Companhia for company lookup
         cvm_code = _get_field(row, "CD_CVM", "Codigo_CVM")
+        if cvm_code:
+            cvm_code = cvm_code.lstrip("0") or "0"
+        else:
+            # FRE posicao_acionaria has no CVM code — use CNPJ for lookup
+            cvm_code = _get_field(row, "CNPJ_Companhia", "CNPJ_CIA")
         if not cvm_code:
             continue
 
         nome = _get_field(
             row,
+            "Acionista",
             "Nome_Controlador",
             "Nome_Acionista",
             "NOME_CONTROLADOR",
-            "NOME_ACIONISTA",
         )
         if not nome:
             continue
 
         tipo = _get_field(
             row,
+            "Acionista_Controlador",
             "Tipo_Controlador",
             "Tipo_Acionista",
             "TP_CONTROLADOR",
-            "TP_ACIONISTA",
         )
+        # Map S/N to descriptive text
+        if tipo == "S":
+            tipo = "Controlador"
+        elif tipo == "N":
+            tipo = "Não Controlador"
+
         cpf_cnpj = _get_field(
             row,
-            "CPF_CNPJ_Controlador",
             "CPF_CNPJ_Acionista",
+            "CPF_CNPJ_Controlador",
             "CPF_CNPJ",
         )
         dt_refer = _get_field(row, "DT_REFER", "Data_Referencia")
-        especie = _get_field(
-            row,
-            "Especie_Acao",
-            "Tipo_Acao",
-            "ESPECIE_ACAO",
-            "TP_ACAO",
-        )
-        descricao = _get_field(
-            row,
-            "Descricao_Acao",
-            "DS_ACAO",
-            "Descricao",
-        )
-        quantidade = _get_field(
-            row,
-            "Quantidade_Acoes",
-            "QTD_ACOES",
-            "QTD",
-            "Quantidade",
-        )
+
+        # Position data — FRE has separate ON/PN columns
+        qty_on = _get_field(row, "Quantidade_Acao_Ordinaria_Circulacao", "Quantidade_Acoes")
+        qty_pn = _get_field(row, "Quantidade_Acao_Preferencial_Circulacao")
+        qty_total = _get_field(row, "Quantidade_Total_Acoes_Circulacao", "QTD_ACOES", "Quantidade")
+
+        # Use total if available, else ON
+        quantidade = qty_total or qty_on or "0"
+        especie = "Ações" if qty_on else ""
+        descricao = _get_field(row, "Descricao_Acao", "DS_ACAO", "Descricao") or "Ações"
+
         valor = _get_field(
             row,
             "Valor_Total",

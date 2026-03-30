@@ -102,8 +102,13 @@ def _build_holdings_query(
             params.extend(types)
         filters_applied["asset_type"] = asset_type
     if operation_type:
-        conditions.append("h.operation_type = %s")
-        params.append(operation_type)
+        if operation_type == "mercado":
+            conditions.append("(h.operation_type ILIKE 'Compra%%' OR h.operation_type ILIKE 'Venda%%')")
+        elif operation_type == "corporativa":
+            conditions.append("NOT (h.operation_type ILIKE 'Compra%%' OR h.operation_type ILIKE 'Venda%%')")
+        else:
+            conditions.append("h.operation_type ILIKE %s")
+            params.append(f"{operation_type}%")
         filters_applied["operation_type"] = operation_type
     if date_from:
         conditions.append("h.operation_date >= %s")

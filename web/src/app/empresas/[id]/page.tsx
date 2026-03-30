@@ -26,11 +26,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const company = await getCompany(id);
   if (!company) {
-    return { title: "Empresa não encontrada | InsiderTrack" };
+    return { title: "Empresa não encontrada | InSight" };
   }
   const ticker = company.ticker ? ` (${company.ticker})` : "";
   return {
-    title: `${company.name}${ticker} - Movimentações de Insiders | InsiderTrack`,
+    title: `${company.name}${ticker} - Movimentações de Insiders | InSight`,
   };
 }
 

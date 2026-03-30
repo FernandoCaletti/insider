@@ -101,6 +101,7 @@ export interface RecentMovement {
   id: number;
   company_name: string;
   company_ticker: string | null;
+  ticker: string | null;
   company_id: number;
   asset_type: AssetType;
   asset_description: string | null;
@@ -108,6 +109,7 @@ export interface RecentMovement {
   quantity: number;
   total_value: number;
   operation_date: string;
+  insider_group: string | null;
 }
 
 export interface MovementChartPoint {

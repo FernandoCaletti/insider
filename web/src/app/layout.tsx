@@ -16,9 +16,9 @@ const jetbrainsMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "InsiderTrack - Movimentações de Insiders",
+  title: "InSight - Inteligência em Movimentações de Insiders",
   description:
-    "Acompanhe as movimentações de insiders em empresas brasileiras listadas na CVM",
+    "Monitore operações de insiders em empresas brasileiras listadas na CVM. Alertas, correlações e análises em tempo real.",
 };
 
 export default function RootLayout({

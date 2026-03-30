@@ -1,5 +1,5 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+// Both SSR and client use /api (proxied via Next.js rewrites)
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined | null>;
@@ -16,7 +16,10 @@ class ApiClient {
     path: string,
     params?: Record<string, string | number | boolean | undefined | null>
   ): string {
-    const url = new URL(`${this.baseUrl}${path}`);
+    const fullPath = `${this.baseUrl}${path}`;
+    // Support relative URLs (e.g. /api/...) in client-side context
+    const base = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+    const url = new URL(fullPath, base);
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {

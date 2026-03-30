@@ -71,12 +71,23 @@ logger = logging.getLogger(__name__)
 
 
 def _load_company_map(database_url: str) -> dict[str, int]:
-    """Load cvm_code -> company id mapping from the database."""
+    """Load cvm_code -> company id mapping from the database.
+
+    Also includes CNPJ -> company_id for FRE CSVs that lack CVM codes.
+    """
     conn = psycopg2.connect(database_url)
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT cvm_code, id FROM companies")
-            return {row[0]: row[1] for row in cur.fetchall()}
+            cur.execute("SELECT cvm_code, id, cnpj FROM companies")
+            mapping: dict[str, int] = {}
+            for row in cur.fetchall():
+                mapping[row[0]] = row[1]
+                if row[2]:
+                    # Normalize CNPJ: strip formatting
+                    cnpj_raw = row[2].replace(".", "").replace("/", "").replace("-", "")
+                    mapping[cnpj_raw] = row[1]
+                    mapping[row[2]] = row[1]  # also with formatting
+            return mapping
     finally:
         conn.close()
 

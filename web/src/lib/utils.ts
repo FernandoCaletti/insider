@@ -2,7 +2,8 @@
  * Format a number as Brazilian currency (R$).
  * Example: 1925000 -> "R$ 1.925.000,00"
  */
-export function formatCurrency(value: number): string {
+export function formatCurrency(value: number | null | undefined): string {
+  if (value == null) return "\u2014";
   return value.toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
@@ -26,7 +27,8 @@ export function formatDate(date: string | Date): string {
  * Format a number with Brazilian thousands separators.
  * Example: 50000 -> "50.000"
  */
-export function formatQuantity(value: number): string {
+export function formatQuantity(value: number | null | undefined): string {
+  if (value == null) return "\u2014";
   return value.toLocaleString("pt-BR", {
     maximumFractionDigits: 0,
   });

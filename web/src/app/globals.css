@@ -50,59 +50,128 @@
   --font-mono: var(--font-jetbrains-mono);
 }
 
+/* ============================================================
+   DEFAULT: Dark theme (fintech professional)
+   Palette: Navy base + Trust Blue accent + Green/Red signals
+   ============================================================ */
 :root {
-  --radius: 0.5rem;
+  --radius: 0.625rem;
 
-  --background: #ffffff;
-  --foreground: #0f172a;
+  /* Base */
+  --background: #0b1120;
+  --foreground: #e2e8f0;
 
-  --card: #ffffff;
-  --card-foreground: #0f172a;
+  /* Cards */
+  --card: #131c2e;
+  --card-foreground: #e2e8f0;
 
-  --popover: #ffffff;
-  --popover-foreground: #0f172a;
+  /* Popovers */
+  --popover: #131c2e;
+  --popover-foreground: #e2e8f0;
 
-  --primary: #1e40af;
+  /* Primary — Trust Blue */
+  --primary: #3b82f6;
   --primary-foreground: #ffffff;
 
-  --secondary: #f1f5f9;
-  --secondary-foreground: #1e293b;
+  /* Secondary */
+  --secondary: #1e293b;
+  --secondary-foreground: #cbd5e1;
 
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
+  /* Muted */
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
 
-  --accent: #f1f5f9;
-  --accent-foreground: #1e293b;
+  /* Accent */
+  --accent: #1e293b;
+  --accent-foreground: #e2e8f0;
 
+  /* Signals */
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-
-  --success: #22c55e;
+  --success: #10b981;
   --success-foreground: #ffffff;
-
   --warning: #f59e0b;
-  --warning-foreground: #ffffff;
+  --warning-foreground: #0b1120;
 
-  --border: #e2e8f0;
-  --input: #e2e8f0;
-  --ring: #1e40af;
+  /* Borders & inputs */
+  --border: #1e293b;
+  --input: #1e293b;
+  --ring: #3b82f6;
 
-  --chart-1: #1e40af;
-  --chart-2: #22c55e;
+  /* Charts */
+  --chart-1: #3b82f6;
+  --chart-2: #10b981;
   --chart-3: #f59e0b;
-  --chart-4: #8b5cf6;
-  --chart-5: #ec4899;
-  --chart-buy: #22c55e;
+  --chart-4: #a78bfa;
+  --chart-5: #f472b6;
+  --chart-buy: #10b981;
   --chart-sell: #ef4444;
 
-  --sidebar-background: #f8fafc;
-  --sidebar-foreground: #334155;
-  --sidebar-primary: #1e40af;
+  /* Sidebar */
+  --sidebar-background: #0b1120;
+  --sidebar-foreground: #94a3b8;
+  --sidebar-primary: #3b82f6;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f1f5f9;
-  --sidebar-accent-foreground: #1e293b;
-  --sidebar-border: #e2e8f0;
-  --sidebar-ring: #1e40af;
+  --sidebar-accent: #1e293b;
+  --sidebar-accent-foreground: #e2e8f0;
+  --sidebar-border: #1e293b;
+  --sidebar-ring: #3b82f6;
+}
+
+/* ============================================================
+   LIGHT theme override
+   ============================================================ */
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: #f8fafc;
+    --foreground: #0f172a;
+
+    --card: #ffffff;
+    --card-foreground: #0f172a;
+
+    --popover: #ffffff;
+    --popover-foreground: #0f172a;
+
+    --primary: #2563eb;
+    --primary-foreground: #ffffff;
+
+    --secondary: #f1f5f9;
+    --secondary-foreground: #1e293b;
+
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+
+    --accent: #f1f5f9;
+    --accent-foreground: #1e293b;
+
+    --destructive: #dc2626;
+    --destructive-foreground: #ffffff;
+    --success: #059669;
+    --success-foreground: #ffffff;
+    --warning: #d97706;
+    --warning-foreground: #ffffff;
+
+    --border: #e2e8f0;
+    --input: #e2e8f0;
+    --ring: #2563eb;
+
+    --chart-1: #2563eb;
+    --chart-2: #059669;
+    --chart-3: #d97706;
+    --chart-4: #7c3aed;
+    --chart-5: #db2777;
+    --chart-buy: #059669;
+    --chart-sell: #dc2626;
+
+    --sidebar-background: #ffffff;
+    --sidebar-foreground: #334155;
+    --sidebar-primary: #2563eb;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #f1f5f9;
+    --sidebar-accent-foreground: #1e293b;
+    --sidebar-border: #e2e8f0;
+    --sidebar-ring: #2563eb;
+  }
 }
 
 @layer base {

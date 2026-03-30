@@ -99,25 +99,55 @@ async def get_company(company_id: int) -> dict[str, Any]:
         if not company:
             raise _not_found()
 
-        # Get current positions from the latest document
+        # Get current positions with initial vs final comparison from latest document
         cur.execute(
             """
-            SELECT h.asset_type, h.asset_description, h.quantity, h.total_value,
-                   h.insider_group, h.confidence
+            WITH latest_doc AS (
+                SELECT id FROM documents
+                WHERE company_id = %s
+                ORDER BY reference_date DESC
+                LIMIT 1
+            ),
+            total_shares AS (
+                SELECT COALESCE(SUM(quantity), 0) AS total
+                FROM insider_positions
+                WHERE company_id = %s
+                  AND reference_date = (
+                      SELECT MAX(reference_date) FROM insider_positions WHERE company_id = %s
+                  )
+            )
+            SELECT
+                h.insider_group,
+                h.asset_type,
+                h.asset_description,
+                SUM(CASE WHEN h.section = 'inicial' THEN h.quantity ELSE 0 END) AS qty_inicial,
+                SUM(CASE WHEN h.section = 'final' THEN h.quantity ELSE 0 END) AS qty_final,
+                SUM(CASE WHEN h.section = 'final' THEN h.quantity ELSE 0 END)
+                  - SUM(CASE WHEN h.section = 'inicial' THEN h.quantity ELSE 0 END) AS variacao,
+                CASE WHEN SUM(CASE WHEN h.section = 'inicial' THEN h.quantity ELSE 0 END) > 0
+                     THEN ROUND(
+                         (SUM(CASE WHEN h.section = 'final' THEN h.quantity ELSE 0 END)
+                          - SUM(CASE WHEN h.section = 'inicial' THEN h.quantity ELSE 0 END))
+                         / SUM(CASE WHEN h.section = 'inicial' THEN h.quantity ELSE 0 END) * 100, 2
+                     )
+                     ELSE NULL
+                END AS variacao_pct,
+                CASE WHEN (SELECT total FROM total_shares) > 0
+                     THEN ROUND(
+                         SUM(CASE WHEN h.section = 'final' THEN h.quantity ELSE 0 END)
+                         / (SELECT total FROM total_shares) * 100, 4
+                     )
+                     ELSE NULL
+                END AS pct_capital
             FROM holdings h
-            JOIN documents d ON d.id = h.document_id
-            WHERE d.company_id = %s
-              AND d.id = (
-                  SELECT id FROM documents
-                  WHERE company_id = %s
-                  ORDER BY reference_date DESC
-                  LIMIT 1
-              )
-              AND h.section = 'final'
-              AND h.confidence != 'baixa'
-            ORDER BY h.insider_group, h.asset_type, h.asset_description
+            JOIN latest_doc ld ON h.document_id = ld.id
+            WHERE h.confidence != 'baixa'
+              AND h.section IN ('inicial', 'final')
+            GROUP BY h.insider_group, h.asset_type, h.asset_description
+            HAVING SUM(CASE WHEN h.section = 'final' THEN h.quantity ELSE 0 END) > 0
+            ORDER BY h.insider_group, h.asset_type
             """,
-            (company_id, company_id),
+            (company_id, company_id, company_id),
         )
         positions = cur.fetchall()
 
@@ -213,8 +243,13 @@ async def get_company_holdings(
             conditions.append("h.asset_type = %s")
             params.append(asset_type)
         if operation_type:
-            conditions.append("h.operation_type = %s")
-            params.append(operation_type)
+            if operation_type == "mercado":
+                conditions.append("(h.operation_type ILIKE 'Compra%%' OR h.operation_type ILIKE 'Venda%%')")
+            elif operation_type == "corporativa":
+                conditions.append("NOT (h.operation_type ILIKE 'Compra%%' OR h.operation_type ILIKE 'Venda%%')")
+            else:
+                conditions.append("h.operation_type ILIKE %s")
+                params.append(f"{operation_type}%")
         if date_from:
             conditions.append("d.reference_date >= %s")
             params.append(date_from)
