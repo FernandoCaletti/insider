@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
     port: int = 8000  # Railway sets PORT env var
     api_env: str = "development"
-    cors_origins: str = "http://localhost:3000,https://insight-cvm.vercel.app"
+    cors_origins: str = "http://localhost:3000,https://insider-bice.vercel.app,https://insight-cvm.vercel.app"
     log_level: str = "INFO"
 
     @property
