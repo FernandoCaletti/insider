@@ -141,21 +141,22 @@ function PositionsTab({ positions }: { positions: Holding[] }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {positions.map((pos: Record<string, unknown>, i: number) => {
-          const variacao = Number(pos.variacao ?? 0);
-          const variacaoPct = pos.variacao_pct != null ? Number(pos.variacao_pct) : null;
-          const pctCapital = pos.pct_capital != null ? Number(pos.pct_capital) : null;
+        {positions.map((pos, i) => {
+          const p = pos as unknown as Record<string, unknown>;
+          const variacao = Number(p.variacao ?? 0);
+          const variacaoPct = p.variacao_pct != null ? Number(p.variacao_pct) : null;
+          const pctCapital = p.pct_capital != null ? Number(p.pct_capital) : null;
           return (
             <TableRow key={i}>
               <TableCell className="text-sm text-muted-foreground">
-                {(pos.insider_group as string) || "\u2014"}
+                {(p.insider_group as string) || "\u2014"}
               </TableCell>
-              <TableCell className="font-medium">{pos.asset_type as string}</TableCell>
+              <TableCell className="font-medium">{p.asset_type as string}</TableCell>
               <TableCell className="text-right font-mono">
-                {formatQuantity(Number(pos.qty_inicial ?? 0))}
+                {formatQuantity(Number(p.qty_inicial ?? 0))}
               </TableCell>
               <TableCell className="text-right font-mono">
-                {formatQuantity(Number(pos.qty_final ?? 0))}
+                {formatQuantity(Number(p.qty_final ?? 0))}
               </TableCell>
               <TableCell className="text-right font-mono">
                 {variacao !== 0 ? (
