@@ -7,16 +7,13 @@ const nextConfig: NextConfig = {
     formats: ["image/avif", "image/webp"],
   },
   async rewrites() {
-    const apiUrl = process.env.API_URL_INTERNAL || "http://localhost:8000";
-    return {
-      // Fallback rewrites — only apply if no page/file matches
-      fallback: [
-        {
-          source: "/api/:path*",
-          destination: `${apiUrl}/api/:path*`,
-        },
-      ],
-    };
+    const apiUrl = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_BACKEND || "http://localhost:8000";
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiUrl}/api/:path*`,
+      },
+    ];
   },
 };
 
