@@ -1,5 +1,14 @@
-// Both SSR and client use /api (proxied via Next.js rewrites)
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
+// SSR uses internal URL, client uses NEXT_PUBLIC_API_URL
+const API_BASE_URL = (() => {
+  // Server-side: use internal URL for direct connection
+  if (typeof window === "undefined") {
+    return process.env.API_URL_INTERNAL
+      ? `${process.env.API_URL_INTERNAL}/api`
+      : "http://localhost:8000/api";
+  }
+  // Client-side: use public URL (can be /api proxy or full URL)
+  return process.env.NEXT_PUBLIC_API_URL || "/api";
+})();
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined | null>;
