@@ -22,7 +22,7 @@ import {
   formatQuantity,
   displayTicker,
 } from "@/lib/utils";
-import type { RecentMovement } from "@/lib/types";
+import type { RecentMovement, SyncStatus } from "@/lib/types";
 
 export const revalidate = 3600;
 
