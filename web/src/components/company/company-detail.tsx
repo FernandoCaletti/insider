@@ -146,12 +146,19 @@ function PositionsTab({ positions }: { positions: Holding[] }) {
           const variacao = Number(p.variacao ?? 0);
           const variacaoPct = p.variacao_pct != null ? Number(p.variacao_pct) : null;
           const pctCapital = p.pct_capital != null ? Number(p.pct_capital) : null;
+          const assetLabels: Record<string, string> = {
+            ACAO_ON: "Ações ON", ACAO_PN: "Ações PN", DEBENTURE: "Debêntures",
+            OPCAO: "Opções", OPCAO_COMPRA: "Opção de Compra", OPCAO_VENDA: "Opção de Venda",
+            BDR: "BDR", UNIT: "Unit", OUTRO: "Outros",
+          };
+          const assetType = p.asset_type as string;
+          const assetLabel = assetLabels[assetType] || assetType;
           return (
             <TableRow key={i}>
-              <TableCell className="text-sm text-muted-foreground">
+              <TableCell className="text-sm">
                 {(p.insider_group as string) || "\u2014"}
               </TableCell>
-              <TableCell className="font-medium">{p.asset_type as string}</TableCell>
+              <TableCell className="font-medium">{assetLabel}</TableCell>
               <TableCell className="text-right font-mono">
                 {formatQuantity(Number(p.qty_inicial ?? 0))}
               </TableCell>
@@ -162,18 +169,18 @@ function PositionsTab({ positions }: { positions: Holding[] }) {
                 {variacao !== 0 ? (
                   <span className={variacao > 0 ? "text-success" : "text-destructive"}>
                     {variacao > 0 ? "+" : ""}{formatQuantity(variacao)}
-                    {variacaoPct != null && (
+                    {variacaoPct != null && isFinite(variacaoPct) && (
                       <span className="text-xs ml-1">
                         ({variacaoPct > 0 ? "+" : ""}{variacaoPct.toFixed(1)}%)
                       </span>
                     )}
                   </span>
                 ) : (
-                  <span className="text-muted-foreground">0</span>
+                  <span className="text-muted-foreground">\u2014</span>
                 )}
               </TableCell>
               <TableCell className="text-right font-mono text-sm text-muted-foreground">
-                {pctCapital != null ? `${pctCapital.toFixed(2)}%` : "\u2014"}
+                {pctCapital != null && pctCapital > 0 ? `${pctCapital.toFixed(4)}%` : "\u2014"}
               </TableCell>
             </TableRow>
           );
