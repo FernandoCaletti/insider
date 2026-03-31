@@ -390,8 +390,10 @@ function MovementsTab({ companyId }: { companyId: number }) {
                         : "\u2014"}
                   </TableCell>
                   <TableCell>
-                    <span className="font-medium">{h.asset_type}</span>
-                    {h.asset_description && (
+                    <span className="font-medium">
+                      {({"ACAO_ON":"Ações ON","ACAO_PN":"Ações PN","DEBENTURE":"Debêntures","OPCAO":"Opções","OPCAO_COMPRA":"Opção de Compra","OPCAO_VENDA":"Opção de Venda","BDR":"BDR","UNIT":"Unit","OUTRO":"Outros"} as Record<string,string>)[h.asset_type] || h.asset_type}
+                    </span>
+                    {h.asset_description && !["Ações", "Ações ON", "Ações PN"].includes(h.asset_description) && (
                       <span className="text-sm text-muted-foreground ml-1">
                         - {h.asset_description}
                       </span>
@@ -401,9 +403,11 @@ function MovementsTab({ companyId }: { companyId: number }) {
                     {h.operation_type ? (
                       <Badge
                         variant={
-                          h.operation_type === "Compra"
+                          h.operation_type.toLowerCase().startsWith("compra")
                             ? "success"
-                            : "destructive"
+                            : h.operation_type.toLowerCase().startsWith("venda")
+                              ? "destructive"
+                              : "secondary"
                         }
                       >
                         {h.operation_type}
