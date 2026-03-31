@@ -119,9 +119,17 @@ export function ActivityRadar() {
                       {item.multiplier.toFixed(1)}x
                     </span>
                   </div>
-                  <Badge variant={buying ? "success" : "destructive"}>
-                    {buying ? "COMPRA" : "VENDA"}
-                  </Badge>
+                  <p className="text-[10px] text-muted-foreground">
+                    {item.multiplier.toFixed(1)}x acima da média histórica
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={buying ? "success" : "destructive"}>
+                      {buying ? "COMPRA" : "VENDA"}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {item.operations_count} ops
+                    </span>
+                  </div>
                   <p className="text-sm font-mono">
                     {formatCompactCurrency(item.total_value)}
                   </p>
