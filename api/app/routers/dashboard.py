@@ -599,7 +599,7 @@ async def market_temperature() -> dict[str, Any]:
 
     return {
         "data": {
-            "period_days": 30,
+            "period_days": 90,
             "total_buys": total_buys,
             "total_sells": total_sells,
             "balance": balance,
