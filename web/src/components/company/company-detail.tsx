@@ -133,19 +133,16 @@ function PositionsTab({ positions }: { positions: Holding[] }) {
       <TableHeader>
         <TableRow>
           <TableHead>Grupo</TableHead>
-          <TableHead>Tipo</TableHead>
-          <TableHead className="text-right">Posição Inicial</TableHead>
-          <TableHead className="text-right">Posição Final</TableHead>
-          <TableHead className="text-right">Variação</TableHead>
-          <TableHead className="text-right">% Capital</TableHead>
+          <TableHead>Ativo</TableHead>
+          <TableHead className="text-right">Quantidade</TableHead>
+          <TableHead className="text-right">% do Capital</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {positions.map((pos, i) => {
           const p = pos as unknown as Record<string, unknown>;
-          const variacao = Number(p.variacao ?? 0);
-          const variacaoPct = p.variacao_pct != null ? Number(p.variacao_pct) : null;
           const pctCapital = p.pct_capital != null ? Number(p.pct_capital) : null;
+          const qty = Number(p.qty_final ?? p.qty_inicial ?? 0);
           const assetLabels: Record<string, string> = {
             ACAO_ON: "Ações ON", ACAO_PN: "Ações PN", DEBENTURE: "Debêntures",
             OPCAO: "Opções", OPCAO_COMPRA: "Opção de Compra", OPCAO_VENDA: "Opção de Venda",
@@ -160,26 +157,9 @@ function PositionsTab({ positions }: { positions: Holding[] }) {
               </TableCell>
               <TableCell className="font-medium">{assetLabel}</TableCell>
               <TableCell className="text-right font-mono">
-                {formatQuantity(Number(p.qty_inicial ?? 0))}
+                {formatQuantity(qty)}
               </TableCell>
-              <TableCell className="text-right font-mono">
-                {formatQuantity(Number(p.qty_final ?? 0))}
-              </TableCell>
-              <TableCell className="text-right font-mono">
-                {variacao !== 0 ? (
-                  <span className={variacao > 0 ? "text-success" : "text-destructive"}>
-                    {variacao > 0 ? "+" : ""}{formatQuantity(variacao)}
-                    {variacaoPct != null && isFinite(variacaoPct) && (
-                      <span className="text-xs ml-1">
-                        ({variacaoPct > 0 ? "+" : ""}{variacaoPct.toFixed(1)}%)
-                      </span>
-                    )}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">{"\u2014"}</span>
-                )}
-              </TableCell>
-              <TableCell className="text-right font-mono text-sm text-muted-foreground">
+              <TableCell className="text-right font-mono text-sm">
                 {pctCapital != null && pctCapital > 0 ? `${pctCapital.toFixed(4)}%` : "\u2014"}
               </TableCell>
             </TableRow>
