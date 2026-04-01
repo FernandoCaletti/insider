@@ -502,7 +502,7 @@ function EvolutionTab({ companyId }: { companyId: number }) {
         </div>
       ) : data.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <p className="text-lg">Sem dados de evolução</p>
+          <p className="text-lg">Sem dados de histórico de posições</p>
         </div>
       ) : (
         <Card>
@@ -956,7 +956,7 @@ export function CompanyDetailClient({ company }: CompanyDetailClientProps) {
         <TabsList>
           <TabsTrigger value="posicoes">Posições Atuais</TabsTrigger>
           <TabsTrigger value="movimentacoes">Movimentações</TabsTrigger>
-          <TabsTrigger value="evolucao">Evolução</TabsTrigger>
+          <TabsTrigger value="evolucao">Histórico de Posições</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
           <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
         </TabsList>
