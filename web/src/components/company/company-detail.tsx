@@ -176,7 +176,7 @@ function PositionsTab({ positions }: { positions: Holding[] }) {
                     )}
                   </span>
                 ) : (
-                  <span className="text-muted-foreground">\u2014</span>
+                  <span className="text-muted-foreground">{"\u2014"}</span>
                 )}
               </TableCell>
               <TableCell className="text-right font-mono text-sm text-muted-foreground">
