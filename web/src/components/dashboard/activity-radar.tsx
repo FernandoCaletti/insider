@@ -120,7 +120,7 @@ export function ActivityRadar() {
                     </span>
                   </div>
                   <p className="text-[10px] text-muted-foreground">
-                    {item.multiplier.toFixed(1)}x acima da média histórica
+                    Volume de operações {item.multiplier.toFixed(1)}x acima da média
                   </p>
                   <div className="flex items-center gap-2">
                     <Badge variant={buying ? "success" : "destructive"}>
